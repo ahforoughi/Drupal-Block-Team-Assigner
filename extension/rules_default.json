@@ -1,0 +1,14 @@
+{
+  "default_team": "",
+  "rules": [
+    {
+      "pattern": "clare",
+      "team_name": "CLARE - 2"
+    },
+    {
+      "pattern": "/faculty-of-arts/",
+      "team_name": "ARTS - 1"
+    }
+  ]
+}
+

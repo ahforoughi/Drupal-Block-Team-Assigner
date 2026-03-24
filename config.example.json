@@ -1,0 +1,7 @@
+{
+  "base_url": "https://arts.ucalgary.ca",
+  "login_url": "https://arts.ucalgary.ca/user/login",
+  "input_csv": "example_pages.csv",
+  "run_log_csv": "run_log.csv",
+  "test_limit": 3
+}

@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Drupal Block Team Assigner – Dashboard</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f172a;
+      --card: #020617;
+      --border: rgba(148, 163, 184, 0.35);
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #14b8a6;
+      --accent-hover: #0d9488;
+      --danger: #f97316;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 16px 20px 24px;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin: 0 0 4px;
+    }
+
+    .header-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .subtitle {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .badge {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .badge.running {
+      color: #facc15;
+      border-color: rgba(250, 204, 21, 0.5);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    @media (max-width: 960px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 18px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    .card h2 {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      margin: 0 0 12px;
+      font-weight: 600;
+    }
+
+    .section-divider {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    label {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    input[type="file"],
+    select,
+    textarea {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(15, 23, 42, 0.85);
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 0.85rem;
+    }
+
+    textarea#rulesText {
+      min-height: 200px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 0.78rem;
+      line-height: 1.45;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .row:last-child {
+      margin-bottom: 0;
+    }
+
+    .grow {
+      flex: 1;
+      min-width: 0;
+    }
+
+    button {
+      font-size: 0.82rem;
+      font-weight: 600;
+      border-radius: 10px;
+      padding: 8px 14px;
+      cursor: pointer;
+      border: none;
+      background: var(--accent);
+      color: #042f2e;
+      transition: filter 0.12s ease, transform 0.06s ease;
+    }
+
+    button:hover:enabled {
+      filter: brightness(1.08);
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    button.danger-outline {
+      background: transparent;
+      color: #f97373;
+      border: 1px solid rgba(249, 115, 115, 0.45);
+    }
+
+    .hint {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+
+    .meta {
+      font-size: 0.72rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .button-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .button-grid button {
+      width: 100%;
+    }
+
+    .activity-card {
+      margin-top: 16px;
+    }
+
+    .activity-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .activity-toolbar h2 {
+      margin: 0;
+    }
+
+    #activityLog {
+      max-height: 280px;
+      overflow-y: auto;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(15, 23, 42, 0.92);
+      padding: 8px 10px;
+      font-size: 0.75rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .log-line {
+      margin: 0 0 6px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+    }
+
+    .log-line:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .log-line.level-info {
+      color: #cbd5e1;
+    }
+    .log-line.level-success {
+      color: #4ade80;
+    }
+    .log-line.level-warn {
+      color: #facc15;
+    }
+    .log-line.level-error {
+      color: #f87171;
+    }
+
+    .link-button {
+      background: none;
+      border: none;
+      padding: 0;
+      color: #60a5fa;
+      cursor: pointer;
+      font-size: 0.75rem;
+      text-decoration: underline;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="header-row">
+    <div>
+      <h1>Drupal Block Team Assigner</h1>
+      <p class="subtitle">Dashboard — CSV, target tab, rules, and live activity.</p>
+    </div>
+    <span class="badge" id="runBadge">Ready</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Input</h2>
+      <label for="csvFile">CSV file (pages)</label>
+      <input type="file" id="csvFile" accept=".csv" />
+      <div class="meta">
+        <span id="fileSummary">No file loaded</span>
+        <span id="rowSummary"></span>
+      </div>
+      <div class="hint">
+        Or
+        <button type="button" class="link-button" id="useCurrentPageBtn">use selected tab URL</button>
+        as a single-page run (uses Target tab below).
+      </div>
+
+      <div class="section-divider">
+        <label for="renderWaitMs">Render wait (ms)</label>
+        <input type="number" id="renderWaitMs" min="0" step="100" value="1200" />
+        <div class="hint">Higher value if the form hydrates after load.</div>
+      </div>
+
+      <div class="section-divider">
+        <label for="teamSeparator">Team separator</label>
+        <select id="teamSeparator">
+          <option value="|">Pipe (|)</option>
+          <option value=",">Comma (,)</option>
+        </select>
+      </div>
+
+      <div class="section-divider">
+        <h2>Run</h2>
+        <button type="button" class="secondary" id="allBlocksBtn" style="width:100%;margin-bottom:8px;">
+          All blocks on selected tab
+        </button>
+        <div class="button-grid">
+          <button type="button" id="testRunBtn" disabled>Test 1 block</button>
+          <button type="button" id="fullRunBtn" disabled>Full batch</button>
+        </div>
+        <div class="hint">
+          Test = first block on each page only. Full batch = every block on every page (use for a single long page with many blocks).
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button type="button" class="danger-outline secondary" id="stopRunBtn" disabled style="flex:1;">Stop</button>
+          <button type="button" class="secondary" id="downloadLogBtn" disabled style="flex:1;">Download run_log.csv</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Target tab</h2>
+      <p class="hint" style="margin-top:0;">
+        Choose the arts.ucalgary.ca tab the extension should drive for scans and assignments.
+      </p>
+      <div class="row">
+        <select id="tabSelect" class="grow"></select>
+        <button type="button" class="secondary" id="refreshTabsBtn">Refresh tabs</button>
+      </div>
+
+      <div class="section-divider">
+        <h2>Rules (JSON)</h2>
+        <textarea id="rulesText" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:10px;">
+          <button type="button" id="saveRulesBtn">Save rules</button>
+          <button type="button" class="secondary" id="resetRulesBtn">Reset to defaults</button>
+        </div>
+        <div class="hint" id="rulesStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card activity-card">
+    <div class="activity-toolbar">
+      <h2>Activity</h2>
+      <div class="row" style="margin:0;">
+        <button type="button" class="secondary" id="copyActivityBtn">Copy all</button>
+        <button type="button" class="secondary" id="clearActivityBtn">Clear log</button>
+      </div>
+    </div>
+    <div id="activityLog"></div>
+  </div>
+
+  <script src="dashboard.js" type="module"></script>
+</body>
+</html>

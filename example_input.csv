@@ -1,0 +1,5 @@
+block_name,edit_url
+Header block - Arts,https://YOUR-DRUPAL-HOST/admin/structure/block/manage/header_arts_block/configure
+Sidebar promo - Engineering,https://YOUR-DRUPAL-HOST/admin/structure/block/manage/sidebar_engineering_promo/configure
+Footer links - Library,https://YOUR-DRUPAL-HOST/admin/structure/block/manage/footer_library_links/configure
+
