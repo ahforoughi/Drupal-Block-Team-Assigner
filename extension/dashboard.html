@@ -271,6 +271,71 @@
       text-decoration: underline;
       font-weight: 500;
     }
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-overlay.open {
+      display: flex;
+    }
+
+    .modal-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px 22px;
+      max-width: 520px;
+      width: 100%;
+      max-height: 85vh;
+      overflow: auto;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+    }
+
+    .modal-box h3 {
+      margin: 0 0 10px;
+      font-size: 1rem;
+    }
+
+    .modal-box pre {
+      font-size: 0.72rem;
+      line-height: 1.45;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      overflow: auto;
+      max-height: 200px;
+      margin: 0 0 14px;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 0.8rem;
+      line-height: 1.35;
+    }
+
+    .check-row input {
+      margin-top: 3px;
+      width: auto;
+    }
   </style>
 </head>
 <body>
@@ -312,6 +377,64 @@
       </div>
 
       <div class="section-divider">
+        <h2>Guardrails</h2>
+        <label for="allowedOrigin">Allowed origin (https only)</label>
+        <input type="text" id="allowedOrigin" placeholder="https://arts.ucalgary.ca" />
+        <div class="hint">CSV <code>page_url</code> must match this origin. Optional path lock below.</div>
+        <label for="pathPrefix" style="margin-top:10px;">Optional path prefix</label>
+        <input type="text" id="pathPrefix" placeholder="e.g. /clare-intermediary/ (leave empty for any path)" />
+        <div class="row" style="margin-top:10px;">
+          <div class="grow">
+            <label for="maxPages">Max pages (0 = no limit)</label>
+            <input type="number" id="maxPages" min="0" step="1" value="0" />
+          </div>
+          <div class="grow">
+            <label for="maxAssignments">Max assignments (0 = no limit)</label>
+            <input type="number" id="maxAssignments" min="0" step="1" value="0" />
+          </div>
+        </div>
+        <div class="row">
+          <div class="grow">
+            <label for="assignGapMs">Delay between assigns (ms)</label>
+            <input type="number" id="assignGapMs" min="0" step="50" value="800" />
+          </div>
+          <div class="grow">
+            <label for="postSaveWaitMs">Post-save wait (ms)</label>
+            <input type="number" id="postSaveWaitMs" min="0" step="100" value="1200" />
+          </div>
+        </div>
+        <div class="section-divider" style="margin-top:10px;">
+          <h2>Anomaly auto-pause</h2>
+          <div class="check-row">
+            <input type="checkbox" id="anomalyAutoPauseEnabled" checked />
+            <label for="anomalyAutoPauseEnabled" style="margin:0;">Auto-pause on risky error patterns.</label>
+          </div>
+          <div class="row">
+            <div class="grow">
+              <label for="anomalyMinSample">Min sample before error-rate check</label>
+              <input type="number" id="anomalyMinSample" min="0" step="1" value="10" />
+            </div>
+            <div class="grow">
+              <label for="anomalyErrorRatePct">Pause if error rate >= (%)</label>
+              <input type="number" id="anomalyErrorRatePct" min="0" step="1" value="15" />
+            </div>
+          </div>
+          <div class="row">
+            <div class="grow">
+              <label for="anomalyConsecutiveTeamNotFound">Consecutive team_option_not_found</label>
+              <input type="number" id="anomalyConsecutiveTeamNotFound" min="0" step="1" value="3" />
+            </div>
+            <div class="grow">
+              <label for="anomalyReceiverErrorsInWindow">Receiver errors in window</label>
+              <input type="number" id="anomalyReceiverErrorsInWindow" min="0" step="1" value="2" />
+            </div>
+          </div>
+          <label for="anomalyWindowSize">Window size (assignments)</label>
+          <input type="number" id="anomalyWindowSize" min="1" step="1" value="10" />
+        </div>
+      </div>
+
+      <div class="section-divider">
         <h2>Run</h2>
         <button type="button" class="secondary" id="allBlocksBtn" style="width:100%;margin-bottom:8px;">
           All blocks on selected tab
@@ -326,6 +449,7 @@
         <div class="row" style="margin-top:10px;">
           <button type="button" class="danger-outline secondary" id="stopRunBtn" disabled style="flex:1;">Stop</button>
           <button type="button" class="secondary" id="downloadLogBtn" disabled style="flex:1;">Download run_log.csv</button>
+          <button type="button" class="secondary" id="downloadOutputBtn" disabled style="flex:1;">Download output.csv</button>
         </div>
       </div>
     </div>
@@ -361,6 +485,17 @@
       </div>
     </div>
     <div id="activityLog"></div>
+  </div>
+
+  <div class="modal-overlay" id="autoPauseModal" role="dialog" aria-modal="true" aria-labelledby="autoPauseModalTitle">
+    <div class="modal-box">
+      <h3 id="autoPauseModalTitle">Run auto-paused</h3>
+      <p class="hint" style="margin:0 0 10px;" id="autoPauseReason"></p>
+      <div class="modal-actions">
+        <button type="button" class="secondary" id="autoPauseCloseBtn">Keep paused</button>
+        <button type="button" id="autoPauseResumeBtn">Resume anyway</button>
+      </div>
+    </div>
   </div>
 
   <script src="dashboard.js" type="module"></script>

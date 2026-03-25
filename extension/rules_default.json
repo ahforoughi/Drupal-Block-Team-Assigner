@@ -2,13 +2,248 @@
   "default_team": "",
   "rules": [
     {
-      "pattern": "clare",
+      "pattern": "/centre-military-security-strategic-studies",
+      "team_name": "CMSS - 25"
+    },
+    {
+      "pattern": "/languages-linguistics-literatures-cultures",
+      "team_name": "FRENCH CENTRE - 54"
+    },
+    {
+      "pattern": "/calgary-institute-humanities-scratch-page",
+      "team_name": "CIH - 24"
+    },
+    {
+      "pattern": "/calgary-distinguished-writers-program",
+      "team_name": "CDWP - 23"
+    },
+    {
+      "pattern": "/international-indigenous-studies",
+      "team_name": "IIS - 30"
+    },
+    {
+      "pattern": "/arts-website-menu-survey-rules",
+      "team_name": "ARTS - 1"
+    },
+    {
+      "pattern": "/phil-for-everyone-scratch-page",
+      "team_name": "Philosophy for everyone"
+    },
+    {
+      "pattern": "/calgary-institute-humanities",
+      "team_name": "CIH - 24"
+    },
+    {
+      "pattern": "/french-centre-scratch-page",
+      "team_name": "FRENCH CENTRE - 54"
+    },
+    {
+      "pattern": "/integrated-arts-media-labs",
+      "team_name": "ART & ART HIST - 36"
+    },
+    {
+      "pattern": "/graduate-student-handbook",
+      "team_name": "HIST - 29"
+    },
+    {
+      "pattern": "/anthropology-archaeology",
+      "team_name": "ANTH - 20"
+    },
+    {
+      "pattern": "/communication-media-film",
+      "team_name": "CMF - 21"
+    },
+    {
+      "pattern": "/creative-performing-arts",
+      "team_name": "SCPA - 26"
+    },
+    {
+      "pattern": "/language-research-centre",
+      "team_name": "LRC - 55"
+    },
+    {
+      "pattern": "/psyc-clinic-scratch-page",
+      "team_name": "Psychology Clinic"
+    },
+    {
+      "pattern": "/department-template",
+      "team_name": "ARTS - 1"
+    },
+    {
+      "pattern": "/clare-intermediary",
       "team_name": "CLARE - 2"
+    },
+    {
+      "pattern": "/clare-scratch-page",
+      "team_name": "CLARE - 2"
+    },
+    {
+      "pattern": "/slllc-scratch-page",
+      "team_name": "SLLLC - 22"
+    },
+    {
+      "pattern": "/agsc-scratch-page",
+      "team_name": "AGSC - 65"
+    },
+    {
+      "pattern": "/anar-scratch-page",
+      "team_name": "ANTH - 20"
+    },
+    {
+      "pattern": "/arts-scratch-page",
+      "team_name": "ARTS - 1"
+    },
+    {
+      "pattern": "/asha-scratch-page",
+      "team_name": "ASHA - 16"
+    },
+    {
+      "pattern": "/cdwp-scratch-page",
+      "team_name": "CDWP - 23"
+    },
+    {
+      "pattern": "/classics-religion",
+      "team_name": "CLARE - 2"
+    },
+    {
+      "pattern": "/cmss-scratch-page",
+      "team_name": "CMSS - 25"
+    },
+    {
+      "pattern": "/coop-scratch-page",
+      "team_name": "COOP - 15"
+    },
+    {
+      "pattern": "/daah-scratch-page",
+      "team_name": "ART & ART HIST - 36"
+    },
+    {
+      "pattern": "/econ-scratch-page",
+      "team_name": "ECON - 27"
+    },
+    {
+      "pattern": "/engl-scratch-page",
+      "team_name": "ENGL - 13"
+    },
+    {
+      "pattern": "/geog-scratch-page",
+      "team_name": "GEOG - 3"
+    },
+    {
+      "pattern": "/hist-scratch-page",
+      "team_name": "HIST - 29"
+    },
+    {
+      "pattern": "/phil-scratch-page",
+      "team_name": "PHIL - 33"
+    },
+    {
+      "pattern": "/poli-scratch-page",
+      "team_name": "POLI - 9"
+    },
+    {
+      "pattern": "/political-science",
+      "team_name": "POLI - 9"
+    },
+    {
+      "pattern": "/psyc-scratch-page",
+      "team_name": "PSYC - 34"
+    },
+    {
+      "pattern": "/psychology-clinic",
+      "team_name": "Psychology Clinic"
+    },
+    {
+      "pattern": "/scpa-scratch-page",
+      "team_name": "SCPA - 26"
+    },
+    {
+      "pattern": "/soci-scratch-page",
+      "team_name": "SOCI - 35"
+    },
+    {
+      "pattern": "/asc-scratch-page",
+      "team_name": "ASC - 14"
+    },
+    {
+      "pattern": "/cmf-scratch-page",
+      "team_name": "CMF - 21"
+    },
+    {
+      "pattern": "/current-students",
+      "team_name": "ARTS - 1"
     },
     {
       "pattern": "/faculty-of-arts/",
       "team_name": "ARTS - 1"
+    },
+    {
+      "pattern": "/iis-scratch-page",
+      "team_name": "IIS - 30"
+    },
+    {
+      "pattern": "/art-art-history",
+      "team_name": "ART & ART HIST - 36"
+    },
+    {
+      "pattern": "/future-students",
+      "team_name": "ARTS - 1"
+    },
+    {
+      "pattern": "/command-centre",
+      "team_name": "ARTS - 1"
+    },
+    {
+      "pattern": "/philosophy",
+      "team_name": "PHIL - 33"
+    },
+    {
+      "pattern": "/psychology",
+      "team_name": "PSYC - 34"
+    },
+    {
+      "pattern": "/economics",
+      "team_name": "ECON - 27"
+    },
+    {
+      "pattern": "/geography",
+      "team_name": "GEOG - 3"
+    },
+    {
+      "pattern": "/sociology",
+      "team_name": "SOCI - 35"
+    },
+    {
+      "pattern": "/contacts",
+      "team_name": "ARTS - 1"
+    },
+    {
+      "pattern": "/research",
+      "team_name": "Research - 18"
+    },
+    {
+      "pattern": "/english",
+      "team_name": "ENGL - 13"
+    },
+    {
+      "pattern": "/history",
+      "team_name": "HIST - 29"
+    },
+    {
+      "pattern": "/about",
+      "team_name": "ARTS - 1"
+    },
+    {
+      "pattern": "/clare",
+      "team_name": "CLARE - 2"
+    },
+    {
+      "pattern": "/node",
+      "team_name": "ARTS - 1"
+    },
+    {
+      "pattern": "clare",
+      "team_name": "CLARE - 2"
     }
   ]
 }
-

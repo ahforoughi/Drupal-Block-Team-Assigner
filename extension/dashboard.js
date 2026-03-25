@@ -4,6 +4,7 @@ const csvFileInput = document.getElementById('csvFile');
 const testRunBtn = document.getElementById('testRunBtn');
 const fullRunBtn = document.getElementById('fullRunBtn');
 const downloadLogBtn = document.getElementById('downloadLogBtn');
+const downloadOutputBtn = document.getElementById('downloadOutputBtn');
 const stopRunBtn = document.getElementById('stopRunBtn');
 const useCurrentPageBtn = document.getElementById('useCurrentPageBtn');
 const allBlocksBtn = document.getElementById('allBlocksBtn');
@@ -21,6 +22,22 @@ const rulesStatus = document.getElementById('rulesStatus');
 const activityLogEl = document.getElementById('activityLog');
 const copyActivityBtn = document.getElementById('copyActivityBtn');
 const clearActivityBtn = document.getElementById('clearActivityBtn');
+const allowedOriginInput = document.getElementById('allowedOrigin');
+const pathPrefixInput = document.getElementById('pathPrefix');
+const maxPagesInput = document.getElementById('maxPages');
+const maxAssignmentsInput = document.getElementById('maxAssignments');
+const assignGapMsInput = document.getElementById('assignGapMs');
+const postSaveWaitMsInput = document.getElementById('postSaveWaitMs');
+const anomalyAutoPauseEnabled = document.getElementById('anomalyAutoPauseEnabled');
+const anomalyMinSample = document.getElementById('anomalyMinSample');
+const anomalyErrorRatePct = document.getElementById('anomalyErrorRatePct');
+const anomalyConsecutiveTeamNotFound = document.getElementById('anomalyConsecutiveTeamNotFound');
+const anomalyReceiverErrorsInWindow = document.getElementById('anomalyReceiverErrorsInWindow');
+const anomalyWindowSize = document.getElementById('anomalyWindowSize');
+const autoPauseModal = document.getElementById('autoPauseModal');
+const autoPauseReason = document.getElementById('autoPauseReason');
+const autoPauseCloseBtn = document.getElementById('autoPauseCloseBtn');
+const autoPauseResumeBtn = document.getElementById('autoPauseResumeBtn');
 
 let pages = [];
 let inputFileName = '';
@@ -141,20 +158,112 @@ function parseCsv(text, separator) {
     .filter((row) => row.page_url);
 }
 
+function parseAllowedOriginInput() {
+  const raw = (allowedOriginInput.value || '').trim();
+  if (!raw) return 'https://arts.ucalgary.ca';
+  try {
+    const u = new URL(raw.includes('://') ? raw : `https://${raw}`);
+    if (u.protocol !== 'https:') return 'https://arts.ucalgary.ca';
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return 'https://arts.ucalgary.ca';
+  }
+}
+
+function buildGuardrailPayload() {
+  return {
+    allowedOrigin: parseAllowedOriginInput(),
+    pathPrefix: (pathPrefixInput.value || '').trim(),
+    maxPages: Math.max(0, parseInt(maxPagesInput.value, 10) || 0),
+    maxAssignments: Math.max(0, parseInt(maxAssignmentsInput.value, 10) || 0),
+    assignGapMs: Math.max(0, parseInt(assignGapMsInput.value, 10) || 0),
+    postSaveWaitMs: Math.max(0, parseInt(postSaveWaitMsInput.value, 10) || 0),
+    anomalyAutoPauseEnabled: !!anomalyAutoPauseEnabled.checked,
+    anomalyMinSample: Math.max(0, parseInt(anomalyMinSample.value, 10) || 0),
+    anomalyErrorRatePct: Math.max(0, parseInt(anomalyErrorRatePct.value, 10) || 0),
+    anomalyConsecutiveTeamNotFound: Math.max(
+      0,
+      parseInt(anomalyConsecutiveTeamNotFound.value, 10) || 0
+    ),
+    anomalyReceiverErrorsInWindow: Math.max(
+      0,
+      parseInt(anomalyReceiverErrorsInWindow.value, 10) || 0
+    ),
+    anomalyWindowSize: Math.max(1, parseInt(anomalyWindowSize.value, 10) || 1)
+  };
+}
+
 async function saveRunOptionsToStorage() {
+  const g = buildGuardrailPayload();
   await chrome.storage.local.set({
     renderWaitMs: Math.max(0, parseInt(renderWaitMsInput.value, 10) || 0),
-    teamSeparator: teamSeparatorSelect.value === ',' ? ',' : '|'
+    teamSeparator: teamSeparatorSelect.value === ',' ? ',' : '|',
+    guardrailAllowedOrigin: g.allowedOrigin,
+    guardrailPathPrefix: g.pathPrefix,
+    guardrailMaxPages: g.maxPages,
+    guardrailMaxAssignments: g.maxAssignments,
+    guardrailAssignGapMs: g.assignGapMs,
+    guardrailPostSaveWaitMs: g.postSaveWaitMs,
+    anomalyAutoPauseEnabled: g.anomalyAutoPauseEnabled,
+    anomalyMinSample: g.anomalyMinSample,
+    anomalyErrorRatePct: g.anomalyErrorRatePct,
+    anomalyConsecutiveTeamNotFound: g.anomalyConsecutiveTeamNotFound,
+    anomalyReceiverErrorsInWindow: g.anomalyReceiverErrorsInWindow,
+    anomalyWindowSize: g.anomalyWindowSize
   });
 }
 
 async function loadRunOptionsFromStorage() {
-  const { renderWaitMs, teamSeparator } = await chrome.storage.local.get([
+  const data = await chrome.storage.local.get([
     'renderWaitMs',
-    'teamSeparator'
+    'teamSeparator',
+    'guardrailAllowedOrigin',
+    'guardrailPathPrefix',
+    'guardrailMaxPages',
+    'guardrailMaxAssignments',
+    'guardrailAssignGapMs',
+    'guardrailPostSaveWaitMs',
+    'anomalyAutoPauseEnabled',
+    'anomalyMinSample',
+    'anomalyErrorRatePct',
+    'anomalyConsecutiveTeamNotFound',
+    'anomalyReceiverErrorsInWindow',
+    'anomalyWindowSize'
   ]);
-  if (typeof renderWaitMs === 'number') renderWaitMsInput.value = String(renderWaitMs);
-  if (teamSeparator === ',') teamSeparatorSelect.value = ',';
+  if (typeof data.renderWaitMs === 'number') renderWaitMsInput.value = String(data.renderWaitMs);
+  if (data.teamSeparator === ',') teamSeparatorSelect.value = ',';
+  if (typeof data.guardrailAllowedOrigin === 'string' && data.guardrailAllowedOrigin) {
+    allowedOriginInput.value = data.guardrailAllowedOrigin;
+  } else {
+    allowedOriginInput.value = 'https://arts.ucalgary.ca';
+  }
+  if (typeof data.guardrailPathPrefix === 'string') pathPrefixInput.value = data.guardrailPathPrefix;
+  if (typeof data.guardrailMaxPages === 'number') maxPagesInput.value = String(data.guardrailMaxPages);
+  if (typeof data.guardrailMaxAssignments === 'number') {
+    maxAssignmentsInput.value = String(data.guardrailMaxAssignments);
+  }
+  if (typeof data.guardrailAssignGapMs === 'number') {
+    assignGapMsInput.value = String(data.guardrailAssignGapMs);
+  }
+  if (typeof data.guardrailPostSaveWaitMs === 'number') {
+    postSaveWaitMsInput.value = String(data.guardrailPostSaveWaitMs);
+  }
+  if (typeof data.anomalyAutoPauseEnabled === 'boolean') {
+    anomalyAutoPauseEnabled.checked = data.anomalyAutoPauseEnabled;
+  }
+  if (typeof data.anomalyMinSample === 'number') anomalyMinSample.value = String(data.anomalyMinSample);
+  if (typeof data.anomalyErrorRatePct === 'number') {
+    anomalyErrorRatePct.value = String(data.anomalyErrorRatePct);
+  }
+  if (typeof data.anomalyConsecutiveTeamNotFound === 'number') {
+    anomalyConsecutiveTeamNotFound.value = String(data.anomalyConsecutiveTeamNotFound);
+  }
+  if (typeof data.anomalyReceiverErrorsInWindow === 'number') {
+    anomalyReceiverErrorsInWindow.value = String(data.anomalyReceiverErrorsInWindow);
+  }
+  if (typeof data.anomalyWindowSize === 'number') {
+    anomalyWindowSize.value = String(data.anomalyWindowSize);
+  }
 }
 
 async function loadRulesEditor() {
@@ -209,24 +318,52 @@ csvFileInput.addEventListener('change', async (e) => {
 
 async function pushPagesToBackground() {
   await saveRunOptionsToStorage();
+  const g = buildGuardrailPayload();
   await chrome.runtime.sendMessage({
     type: 'SET_BLOCKS',
     blocks: pages,
     inputFileName,
     targetTabId: getSelectedTabId(),
     renderWaitMs: Math.max(0, parseInt(renderWaitMsInput.value, 10) || 0),
-    teamSeparator: teamSeparatorSelect.value === ',' ? ',' : '|'
+    teamSeparator: teamSeparatorSelect.value === ',' ? ',' : '|',
+    ...g
   });
+}
+
+function buildStartRunMessage(mode, limit) {
+  const g = buildGuardrailPayload();
+  return {
+    type: 'START_RUN',
+    mode,
+    limit: mode === 'test' ? limit || 1 : undefined,
+    targetTabId: getSelectedTabId(),
+    renderWaitMs: Math.max(0, parseInt(renderWaitMsInput.value, 10) || 0),
+    teamSeparator: teamSeparatorSelect.value === ',' ? ',' : '|',
+    ...g
+  };
+}
+
+function refreshToolbar() {
+  testRunBtn.disabled = isRunning || !pages.length;
+  fullRunBtn.disabled = isRunning || !pages.length;
+  allBlocksBtn.disabled = isRunning;
+  stopRunBtn.disabled = !isRunning;
+  runBadge.textContent = isRunning ? 'Running' : 'Ready';
+  runBadge.classList.toggle('running', isRunning);
 }
 
 function setRunningState(running) {
   isRunning = running;
-  testRunBtn.disabled = running || !pages.length;
-  fullRunBtn.disabled = running || !pages.length;
-  allBlocksBtn.disabled = running;
-  stopRunBtn.disabled = !running;
-  runBadge.textContent = running ? 'Running' : 'Ready';
-  runBadge.classList.toggle('running', running);
+  refreshToolbar();
+}
+
+function openAutoPauseModal(reason) {
+  autoPauseReason.textContent = reason || 'Paused due to anomaly thresholds.';
+  autoPauseModal.classList.add('open');
+}
+
+function closeAutoPauseModal() {
+  autoPauseModal.classList.remove('open');
 }
 
 teamSeparatorSelect.addEventListener('change', async () => {
@@ -235,33 +372,39 @@ teamSeparatorSelect.addEventListener('change', async () => {
 
 renderWaitMsInput.addEventListener('change', () => saveRunOptionsToStorage());
 
+[
+  allowedOriginInput,
+  pathPrefixInput,
+  maxPagesInput,
+  maxAssignmentsInput,
+  assignGapMsInput,
+  postSaveWaitMsInput,
+  anomalyAutoPauseEnabled,
+  anomalyMinSample,
+  anomalyErrorRatePct,
+  anomalyConsecutiveTeamNotFound,
+  anomalyReceiverErrorsInWindow,
+  anomalyWindowSize
+].forEach((el) => el.addEventListener('change', () => saveRunOptionsToStorage()));
+
 testRunBtn.addEventListener('click', async () => {
   await pushPagesToBackground();
-  chrome.runtime.sendMessage({
-    type: 'START_RUN',
-    mode: 'test',
-    limit: 1,
-    targetTabId: getSelectedTabId(),
-    renderWaitMs: Math.max(0, parseInt(renderWaitMsInput.value, 10) || 0),
-    teamSeparator: teamSeparatorSelect.value === ',' ? ',' : '|'
-  });
+  chrome.runtime.sendMessage(buildStartRunMessage('test', 1));
   setRunningState(true);
 });
 
 fullRunBtn.addEventListener('click', async () => {
   await pushPagesToBackground();
-  chrome.runtime.sendMessage({
-    type: 'START_RUN',
-    mode: 'full',
-    targetTabId: getSelectedTabId(),
-    renderWaitMs: Math.max(0, parseInt(renderWaitMsInput.value, 10) || 0),
-    teamSeparator: teamSeparatorSelect.value === ',' ? ',' : '|'
-  });
+  chrome.runtime.sendMessage(buildStartRunMessage('full'));
   setRunningState(true);
 });
 
 downloadLogBtn.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'DOWNLOAD_LOG' });
+});
+
+downloadOutputBtn.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'DOWNLOAD_OUTPUT_LOG' });
 });
 
 stopRunBtn.addEventListener('click', () => {
@@ -320,14 +463,8 @@ allBlocksBtn.addEventListener('click', async () => {
   fileSummaryEl.textContent = inputFileName;
   rowSummaryEl.textContent = '1 page – all blocks';
   await pushPagesToBackground();
+  chrome.runtime.sendMessage(buildStartRunMessage('full'));
   setRunningState(true);
-  chrome.runtime.sendMessage({
-    type: 'START_RUN',
-    mode: 'full',
-    targetTabId: getSelectedTabId(),
-    renderWaitMs: Math.max(0, parseInt(renderWaitMsInput.value, 10) || 0),
-    teamSeparator: teamSeparatorSelect.value === ',' ? ',' : '|'
-  });
 });
 
 refreshTabsBtn.addEventListener('click', refreshTabList);
@@ -396,16 +533,41 @@ clearActivityBtn.addEventListener('click', async () => {
   });
 });
 
+autoPauseCloseBtn.addEventListener('click', () => {
+  closeAutoPauseModal();
+});
+
+autoPauseResumeBtn.addEventListener('click', () => {
+  closeAutoPauseModal();
+  setRunningState(true);
+  chrome.runtime.sendMessage({ type: 'RESUME_AUTO_PAUSE_PHASE2' });
+});
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'LOG_ENTRY' && msg.entry) {
     appendActivityLine(msg.entry);
   }
+  if (msg.type === 'AUTO_PAUSED_PHASE2') {
+    setRunningState(false);
+    openAutoPauseModal(msg.reason || '');
+    appendActivityLine({
+      level: 'warn',
+      message: `Auto-paused — ${msg.reason || 'threshold reached'}`,
+      timestamp: new Date().toISOString()
+    });
+  }
   if (msg.type === 'PROGRESS_UPDATE') {
     const { currentIndex, total, successCount, errorCount, lastEntry } = msg;
     downloadLogBtn.disabled = total === 0;
+    downloadOutputBtn.disabled = true;
     if (lastEntry) {
       appendActivityLine({
-        level: lastEntry.status === 'success' ? 'success' : lastEntry.status === 'error' ? 'error' : 'warn',
+        level:
+          lastEntry.status === 'success' || lastEntry.status === 'already_set'
+            ? 'success'
+            : lastEntry.status === 'error'
+              ? 'error'
+              : 'warn',
         message: `Block ${lastEntry.block_label || 'unknown'} — ${lastEntry.status}`,
         details: `${lastEntry.page_url || ''} ${lastEntry.notes || ''}`.trim(),
         timestamp: lastEntry.timestamp || new Date().toISOString()
@@ -421,11 +583,12 @@ chrome.runtime.onMessage.addListener((msg) => {
     const { total, pageCount, successCount, errorCount } = msg;
     setRunningState(false);
     downloadLogBtn.disabled = total === 0;
+    downloadOutputBtn.disabled = pageCount === 0;
     const pagesPart =
       typeof pageCount === 'number' ? `${pageCount} page(s), ` : '';
     appendActivityLine({
       level: 'success',
-      message: `Run complete. ${pagesPart}${total} assignment(s): success ${successCount}, errors ${errorCount}`,
+      message: `Run complete. ${pagesPart}${total} row(s): ok ${successCount}, other ${errorCount}`,
       timestamp: new Date().toISOString()
     });
   }
@@ -441,4 +604,5 @@ chrome.runtime.onMessage.addListener((msg) => {
     message: 'Dashboard ready',
     timestamp: new Date().toISOString()
   });
+  refreshToolbar();
 })();

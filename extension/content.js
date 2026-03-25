@@ -274,77 +274,71 @@
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'ASSIGN_TEAM') {
       (async () => {
+        let result = { status: 'error', notes: 'assign handler did not finish' };
         try {
           const teamName = msg.teamName;
           const blockIndex = typeof msg.blockIndex === 'number' ? msg.blockIndex : 0;
           if (!teamName) {
-            sendResponse({ status: 'error', notes: 'missing teamName' });
-            return;
+            result = { status: 'error', notes: 'missing teamName' };
+          } else {
+            const links = collectEditLinks(document);
+            if (!links.length || !links[blockIndex]) {
+              result = {
+                status: 'error',
+                notes: `edit link not found for blockIndex ${blockIndex}`
+              };
+            } else {
+              links[blockIndex].click();
+              const doc = await waitForTeamsFormDoc();
+              if (!doc) {
+                result = { status: 'error', notes: 'team checkboxes not found (modal/iframe)' };
+              } else {
+                const allCbs = getTeamCheckboxes(doc);
+                if (!allCbs.length) {
+                  result = { status: 'error', notes: 'no team checkboxes found' };
+                } else {
+                  const targetCb = findCheckboxForTeamName(doc, allCbs, teamName);
+                  if (!targetCb) {
+                    result = {
+                      status: 'team_option_not_found',
+                      notes: `checkbox for "${teamName}" not found`
+                    };
+                  } else if (targetCb.checked) {
+                    result = { status: 'already_set', notes: 'target team already selected' };
+                  } else {
+                    ensureCheckboxChecked(targetCb);
+                    if (!targetCb.checked) {
+                      result = { status: 'error', notes: 'could not check team checkbox' };
+                    } else {
+                      await sleep(400);
+                      const saveBtn = findSaveButton(doc);
+                      if (!saveBtn) {
+                        result = {
+                          status: 'error',
+                          notes: 'Save button not found (form or dialog title bar)'
+                        };
+                      } else {
+                        saveBtn.click();
+                        const postSave =
+                          typeof msg.postSaveWaitMs === 'number' && msg.postSaveWaitMs >= 0
+                            ? msg.postSaveWaitMs
+                            : 1200;
+                        await sleep(postSave);
+                        result = { status: 'success', notes: '' };
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
-          const links = collectEditLinks(document);
-          if (!links.length || !links[blockIndex]) {
-            sendResponse({
-              status: 'error',
-              notes: `edit link not found for blockIndex ${blockIndex}`
-            });
-            return;
-          }
-          links[blockIndex].click();
-
-          const doc = await waitForTeamsFormDoc();
-          if (!doc) {
-            closeBlockModal();
-            sendResponse({ status: 'error', notes: 'team checkboxes not found (modal/iframe)' });
-            return;
-          }
-          const allCbs = getTeamCheckboxes(doc);
-          if (!allCbs.length) {
-            closeBlockModal();
-            sendResponse({ status: 'error', notes: 'no team checkboxes found' });
-            return;
-          }
-
-          const targetCb = findCheckboxForTeamName(doc, allCbs, teamName);
-          if (!targetCb) {
-            closeBlockModal();
-            sendResponse({
-              status: 'team_option_not_found',
-              notes: `checkbox for "${teamName}" not found`
-            });
-            return;
-          }
-
-          if (targetCb.checked) {
-            closeBlockModal();
-            sendResponse({ status: 'already_set', notes: 'target team already selected' });
-            return;
-          }
-
-          ensureCheckboxChecked(targetCb);
-          if (!targetCb.checked) {
-            closeBlockModal();
-            sendResponse({ status: 'error', notes: 'could not check team checkbox' });
-            return;
-          }
-
-          await sleep(400);
-
-          const saveBtn = findSaveButton(doc);
-          if (!saveBtn) {
-            closeBlockModal();
-            sendResponse({ status: 'error', notes: 'Save button not found (form or dialog title bar)' });
-            return;
-          }
-          saveBtn.click();
-
-          await sleep(1200);
-
-          closeBlockModal();
-
-          sendResponse({ status: 'success', notes: '' });
         } catch (e) {
-          sendResponse({ status: 'error', notes: String(e) });
+          result = { status: 'error', notes: String(e) };
         }
+        try {
+          sendResponse(result);
+        } catch (e) {}
+        closeBlockModal();
       })();
       return true;
     }
@@ -375,9 +369,9 @@
                 : label;
           blocks.push({ label, editUrl, hasTeam: false });
         }
-        sendResponse({ blocks });
+        sendResponse({ blocks, pageTitle: document.title || '' });
       } catch (e) {
-        sendResponse({ blocks: [] });
+        sendResponse({ blocks: [], pageTitle: document.title || '' });
       }
     }
   });

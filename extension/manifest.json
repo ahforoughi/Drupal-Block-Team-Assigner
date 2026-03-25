@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Drupal Block Team Assigner",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Assign teams to Drupal blocks from a CSV using URL rules.",
   "action": {
     "default_title": "Open Block Team Assigner dashboard"
@@ -15,7 +15,8 @@
     "activeTab",
     "storage",
     "downloads",
-    "tabs"
+    "tabs",
+    "alarms"
   ],
   "host_permissions": [
     "https://arts.ucalgary.ca/*"

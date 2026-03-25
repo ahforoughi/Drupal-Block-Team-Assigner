@@ -41,6 +41,8 @@ Load the `extension` folder in Chrome (Developer mode → Load unpacked). Click 
 - Input CSV: `page_url`, `page_teams` (optional; first team uses the separator chosen in the dashboard: pipe or comma).
 - **Test 1 block** only assigns the **first** block on each page. **Full batch** assigns **all** blocks on each page—even when the CSV has only one URL (e.g. one long landing page with many blocks).
 
+**Guardrails (dashboard):** **Allowed origin** (https only) and optional **path prefix** filter CSV URLs (`skipped_invalid_url` if not allowed). **Max pages** / **max assignments** cap each run (`0` = no limit). **Delay between assigns** and **post-save wait** throttle automation. Assignments use batched work plus `chrome.alarms` pauses for long Manifest V3 runs.
+
 ## Input CSV format
 
 **Pages CSV (for both methods)**
@@ -60,6 +62,6 @@ Both methods write (or download) `run_log.csv` with:
 
 - `page_url`, `block_label`, `block_edit_url`, `team_name`, `status`, `notes`, `timestamp`
 
-`status` can be: `success`, `already_set` (target team already checked), `no_rule_match`, `team_option_not_found`, `error`.
+`status` can be: `success`, `already_set` (target team already checked), `no_rule_match`, `team_option_not_found`, `error`, `skipped_invalid_url` (URL failed guardrails).
 
 If you see **Receiving end does not exist** on a run: reload the extension, **refresh the arts.ucalgary.ca tab**, ensure that tab stays on a normal page (not `chrome://`), and try again—the background script now retries messaging automatically; persistent failures usually mean the content script is not injected on that URL (check `manifest.json` `matches`).
