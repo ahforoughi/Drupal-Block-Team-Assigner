@@ -557,7 +557,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     });
   }
   if (msg.type === 'PROGRESS_UPDATE') {
-    const { currentIndex, total, successCount, errorCount, lastEntry } = msg;
+    const { currentIndex, total, successCount, errorCount, lastEntry, pageIndex, pageTotal } = msg;
     downloadLogBtn.disabled = total === 0;
     downloadOutputBtn.disabled = true;
     if (lastEntry) {
@@ -573,9 +573,10 @@ chrome.runtime.onMessage.addListener((msg) => {
         timestamp: lastEntry.timestamp || new Date().toISOString()
       });
     }
+    const pagePart = pageTotal ? `Page ${pageIndex}/${pageTotal} — ` : '';
     appendActivityLine({
       level: 'info',
-      message: `Progress: assignment ${currentIndex} / ${total} (ok: ${successCount}, err: ${errorCount})`,
+      message: `${pagePart}block ${currentIndex}/${total} (ok: ${successCount}, err: ${errorCount})`,
       timestamp: new Date().toISOString()
     });
   }

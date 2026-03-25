@@ -17,7 +17,6 @@ const STORAGE_KEYS = {
   runCancel: 'runCancelV1',
   runActive: 'runActiveV1',
   phase2Chunk: 'phase2ChunkV1',
-  pendingPhase2: 'pendingPhase2ConfirmV1',
   autoPausePhase2: 'autoPausePhase2V1',
   outputPageSummaries: 'outputPageSummariesV1'
 };
@@ -37,7 +36,7 @@ let guardrails = {
   anomalyWindowSize: 10
 };
 
-/** Count as “ok” for progress (block already had the team). */
+/** Count as "ok" for progress (block already had the team). */
 function isAssignmentOk(status) {
   return status === 'success' || status === 'already_set';
 }
@@ -217,6 +216,8 @@ chrome.action.onClicked.addListener(async () => {
   }
 });
 
+/* ─── message router ──────────────────────────────────────────────── */
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'SET_BLOCKS') {
     pages = msg.blocks || [];
@@ -240,21 +241,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (running || !pages.length) return;
     (async () => {
       try {
-        const pending = await chrome.storage.local.get(STORAGE_KEYS.pendingPhase2);
-        if (pending[STORAGE_KEYS.pendingPhase2]) {
-          emitLog(
-            'error',
-            'Run blocked',
-            'A run is waiting for confirmation. Continue or cancel in the dashboard first.'
-          );
-          return;
-        }
         const chunk = await chrome.storage.local.get(STORAGE_KEYS.phase2Chunk);
         if (chunk[STORAGE_KEYS.phase2Chunk]) {
           emitLog(
             'error',
             'Run blocked',
-            'A chunked assignment is in progress. Wait for it to finish or use Stop, then retry.'
+            'A run is in progress. Wait for it to finish or use Stop, then retry.'
           );
           return;
         }
@@ -272,78 +264,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         mergeGuardrailsFromMsg(msg);
         const pageLimit = msg.mode === 'test' ? msg.limit || 1 : pages.length;
         const testFirstBlockOnly = msg.mode === 'test';
-        const scanOnly = !!msg.scanOnly;
-        const confirmBeforeAssign = !!msg.confirmBeforeAssign;
 
-        const outcome = await runPages(pageLimit, testFirstBlockOnly, {
-          scanOnly,
-          confirmBeforeAssign
-        });
-        if (outcome.mode === 'await_confirm') {
-          chrome.runtime
-            .sendMessage({
-              type: 'AWAIT_PHASE2_CONFIRM',
-              summary: outcome.summary
-            })
-            .catch(() => {});
-        } else if (outcome.mode === 'phase2_scheduled') {
-          /* RUN_COMPLETE sent when phase 2 chunker finishes */
-        } else {
-          await sendRunComplete(pageLimit, outcome.scanOnly === true);
+        const outcome = await runPages(pageLimit, testFirstBlockOnly);
+        if (outcome.mode !== 'scheduled') {
+          await sendRunComplete(pageLimit);
         }
       } catch (e) {
         emitLog('error', 'Run failed', String(e));
         const chunkNow = await chrome.storage.local.get(STORAGE_KEYS.phase2Chunk);
         if (!chunkNow[STORAGE_KEYS.phase2Chunk]) {
-          await sendRunComplete(Math.min(msg.mode === 'test' ? msg.limit || 1 : pages.length, pages.length), false);
+          await sendRunComplete(
+            Math.min(msg.mode === 'test' ? msg.limit || 1 : pages.length, pages.length)
+          );
         }
       } finally {
         const stillChunked = await chrome.storage.local.get(STORAGE_KEYS.phase2Chunk);
-        const pending2 = await chrome.storage.local.get(STORAGE_KEYS.pendingPhase2);
         if (stillChunked[STORAGE_KEYS.phase2Chunk]) {
-          /* Assignments still running via alarms; keep running true and runActive */
-        } else if (pending2[STORAGE_KEYS.pendingPhase2]) {
-          running = false;
-          await chrome.storage.local.remove(STORAGE_KEYS.runActive);
+          /* Still running via alarms — keep running true */
         } else {
           running = false;
           await chrome.storage.local.remove(STORAGE_KEYS.runActive);
         }
       }
     })();
-    return;
-  }
-
-  if (msg.type === 'RESUME_PHASE2') {
-    (async () => {
-      const { [STORAGE_KEYS.pendingPhase2]: pending } = await chrome.storage.local.get(
-        STORAGE_KEYS.pendingPhase2
-      );
-      if (!pending || !pending.workQueue || !pending.workQueue.length) {
-        emitLog('warn', 'Resume assignments', 'No pending run found.');
-        return;
-      }
-      if (running) {
-        emitLog('warn', 'Resume assignments', 'A run is already active.');
-        return;
-      }
-      running = true;
-      cancelRequested = false;
-      await clearRunCancelled();
-      await chrome.storage.local.set({ [STORAGE_KEYS.runActive]: true });
-      await chrome.storage.local.remove(STORAGE_KEYS.pendingPhase2);
-      runTabId = pending.tabId;
-      renderWaitMs = pending.renderWaitMs;
-      teamSeparator = pending.teamSeparator;
-      guardrails.assignGapMs = pending.assignGapMs;
-      guardrails.postSaveWaitMs = pending.postSaveWaitMs;
-      emitLog('info', 'Assignments starting', `${pending.workQueue.length} assignment(s) after confirmation.`);
-      await startPhase2Chunked(pending.workQueue, pending.progressMeta);
-    })().catch((e) => {
-      emitLog('error', 'Resume assignments failed', String(e));
-      running = false;
-      chrome.storage.local.remove(STORAGE_KEYS.runActive).catch(() => {});
-    });
     return;
   }
 
@@ -367,18 +310,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       await chrome.storage.local.remove(STORAGE_KEYS.autoPausePhase2);
       await chrome.storage.local.set({ [STORAGE_KEYS.phase2Chunk]: paused.phase2Chunk });
       emitLog('warn', 'Run resumed after auto-pause', paused.reason || '');
-      await runPhase2NextBatch();
+      await runNextChunk();
     })().catch((e) => {
       emitLog('error', 'Resume auto-pause failed', String(e));
       running = false;
       chrome.storage.local.remove(STORAGE_KEYS.runActive).catch(() => {});
-    });
-    return;
-  }
-
-  if (msg.type === 'CANCEL_PENDING_PHASE2') {
-    chrome.storage.local.remove(STORAGE_KEYS.pendingPhase2).then(() => {
-      emitLog('info', 'Pending confirmation cancelled', '');
     });
     return;
   }
@@ -398,89 +334,48 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-function isScanPreviewOk(status) {
-  return status === 'would_assign' || status === 'no_rule_match';
-}
+/* ─── run lifecycle helpers ───────────────────────────────────────── */
 
-async function sendRunComplete(pageLimit, scanOnlyRun) {
+async function sendRunComplete(pageLimit) {
   const pageCount = Math.min(pageLimit, pages.length);
-  const successCount = scanOnlyRun
-    ? logEntries.filter((l) => isScanPreviewOk(l.status)).length
-    : logEntries.filter((l) => isAssignmentOk(l.status)).length;
-  const errorCount = scanOnlyRun
-    ? logEntries.filter((l) => !isScanPreviewOk(l.status)).length
-    : logEntries.filter((l) => !isAssignmentOk(l.status)).length;
+  const successCount = logEntries.filter((l) => isAssignmentOk(l.status)).length;
+  const errorCount = logEntries.filter((l) => !isAssignmentOk(l.status)).length;
   chrome.runtime
     .sendMessage({
       type: 'RUN_COMPLETE',
       total: logEntries.length,
       pageCount,
       successCount,
-      errorCount,
-      scanOnly: !!scanOnlyRun
+      errorCount
     })
     .catch(() => {});
 }
 
-async function finishPhase2Run(pageLimitForMeta, scanOnlyRun) {
+async function finishRun(pageLimitForMeta) {
   running = false;
   await chrome.storage.local.remove(STORAGE_KEYS.runActive);
-  await chrome.storage.local.set({ [STORAGE_KEYS.outputPageSummaries]: pageSummaries }).catch(() => {});
-  await sendRunComplete(pageLimitForMeta || pages.length, scanOnlyRun === true);
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEYS.outputPageSummaries]: pageSummaries });
+  } catch {
+    /* ignore */
+  }
+  await sendRunComplete(pageLimitForMeta || pages.length);
 }
 
-function buildWorkQueue(pagePlans, testFirstBlockOnly) {
-  const workQueue = [];
-  for (const plan of pagePlans) {
-    const { page, blocks } = plan;
-    const slice = testFirstBlockOnly ? blocks.slice(0, 1) : blocks;
-    for (let bi = 0; bi < slice.length; bi += 1) {
-      const block = slice[bi];
-      if (block.hasTeam) continue;
-      workQueue.push({ page, blockIndex: bi, block });
-    }
+/* ─── page-by-page orchestration ──────────────────────────────────── */
+
+function buildPageBlocks(blocks, testFirstBlockOnly) {
+  const items = [];
+  const slice = testFirstBlockOnly ? blocks.slice(0, 1) : blocks;
+  for (let bi = 0; bi < slice.length; bi += 1) {
+    const block = slice[bi];
+    if (block.hasTeam) continue;
+    items.push({ blockIndex: bi, block });
   }
-  const cap = guardrails.maxAssignments;
-  if (cap > 0 && workQueue.length > cap) {
-    emitLog(
-      'warn',
-      'Assignment cap applied',
-      `Queue truncated from ${workQueue.length} to ${cap} (max assignments).`
-    );
-    return workQueue.slice(0, cap);
-  }
-  return workQueue;
+  return items;
 }
 
-function buildConfirmSummary(workQueue, rules) {
-  const sample = [];
-  const teamCounts = {};
-  for (let i = 0; i < workQueue.length; i += 1) {
-    const { page, block } = workQueue[i];
-    const teamName = getTeamForPage(page, rules, teamSeparator) || '';
-    if (teamName) {
-      teamCounts[teamName] = (teamCounts[teamName] || 0) + 1;
-    }
-    if (sample.length < 8) {
-      sample.push({
-        page_url: page.page_url,
-        block_label: block.label || '',
-        team_name: teamName
-      });
-    }
-  }
-  return {
-    queueLength: workQueue.length,
-    teamCounts,
-    sample
-  };
-}
-
-async function runPages(pageLimit, testFirstBlockOnly, opts) {
-  const scanOnly = opts && opts.scanOnly;
-  const confirmBeforeAssign = opts && opts.confirmBeforeAssign;
-  const rules = await loadRules();
-
+async function runPages(pageLimit, testFirstBlockOnly) {
   const tabId = runTabId;
 
   if (!tabId) {
@@ -526,429 +421,330 @@ async function runPages(pageLimit, testFirstBlockOnly, opts) {
     `${validPages.length} page(s), ${testFirstBlockOnly ? 'test (first block per page only)' : 'full (all blocks)'}, tab ${tabId}`
   );
 
-  const pagePlans = [];
+  pageSummaries = [];
 
-  emitLog('info', 'Scanning pages', `Visiting ${validPages.length} page(s) to list blocks only.`);
-
-  for (let i = 0; i < validPages.length; i += 1) {
-    if (cancelRequested || (await isRunCancelledStorage())) break;
-    const page = validPages[i];
-
-    try {
-      emitLog('info', `Scan: navigate`, page.page_url);
-      await chrome.tabs.update(tabId, { url: page.page_url });
-      await waitForTabComplete(tabId);
-      if (renderWaitMs > 0) {
-        await sleep(renderWaitMs);
-      }
-
-      const scanResult = await sendScanBlocks(tabId);
-      const blocks = (scanResult && scanResult.blocks) || [];
-      if (scanResult && scanResult.error) {
-        emitLog('warn', 'Scan warning', scanResult.error);
-      }
-      emitLog('info', `Scan: done`, `page ${i + 1}/${validPages.length} — ${blocks.length} block(s)`);
-      const pageTitle = scanResult && typeof scanResult.pageTitle === 'string' ? scanResult.pageTitle : '';
-      const pageTeam = getTeamForPage(page, rules, teamSeparator) || '';
-      pageSummaries.push({
-        page_title: pageTitle,
-        page_url: page.page_url,
-        page_team: pageTeam,
-        blocks_no_team_before: blocks.length,
-        blocks_no_team_after: null
-      });
-      pagePlans.push({ page, blocks });
-    } catch (err) {
-      const errMsg = String(err);
-      emitLog('error', `Scan: page error`, errMsg);
-      pagePlans.push({ page, blocks: [], scanError: errMsg });
-      const pageTeam = getTeamForPage(page, rules, teamSeparator) || '';
-      pageSummaries.push({
-        page_title: '',
-        page_url: page.page_url,
-        page_team: pageTeam,
-        blocks_no_team_before: 0,
-        blocks_no_team_after: null
-      });
-    }
-  }
-
-  if (cancelRequested || (await isRunCancelledStorage())) {
-    emitLog('warn', 'Run cancelled', 'Stopped after scanning.');
-    return { mode: 'complete' };
-  }
-
-  const blockTotal = pagePlans.reduce((sum, p) => sum + (p.blocks && p.blocks.length ? p.blocks.length : 0), 0);
-  emitLog(
-    'info',
-    'Scan complete',
-    `${pagePlans.length} page(s), ${blockTotal} block(s) found on the page(s).`
-  );
-
-  if (testFirstBlockOnly && blockTotal > 1) {
-    emitLog(
-      'info',
-      'Test mode',
-      `Only the first block per page will be assigned (${blockTotal} scanned). Use Full batch for every block.`
-    );
-  }
-
-  const workQueue = buildWorkQueue(pagePlans, testFirstBlockOnly);
-
-  if (!workQueue.length) {
-    emitLog('info', 'Assignments skipped', 'No blocks to assign (empty or all skipped).');
-    // If we didn't assign anything, the "after" state equals "before".
-    // Persist immediately so downloads still work even if MV3 suspends/restarts the SW.
-    for (const s of pageSummaries) {
-      if (s && (s.blocks_no_team_after == null || s.blocks_no_team_after === '')) {
-        s.blocks_no_team_after = s.blocks_no_team_before;
-      }
-    }
-    await chrome.storage.local.set({ [STORAGE_KEYS.outputPageSummaries]: pageSummaries }).catch(() => {});
-    return { mode: 'complete' };
-  }
-
-  if (scanOnly) {
-    emitLog('info', 'Scan-only mode', `Recording ${workQueue.length} would-be assignment(s); no edits.`);
-    // Scan-only doesn't mutate the page, so after = before for output purposes.
-    for (const s of pageSummaries) {
-      if (s && (s.blocks_no_team_after == null || s.blocks_no_team_after === '')) {
-        s.blocks_no_team_after = s.blocks_no_team_before;
-      }
-    }
-    await chrome.storage.local
-      .set({ [STORAGE_KEYS.outputPageSummaries]: pageSummaries })
-      .catch(() => {});
-    for (const { page, block } of workQueue) {
-      const teamName = getTeamForPage(page, rules, teamSeparator);
-      let status = 'would_assign';
-      let notes = '';
-      if (!teamName) {
-        status = 'no_rule_match';
-        notes = 'no matching team for page';
-      } else if (!block.editUrl) {
-        status = 'error';
-        notes = 'missing editUrl for block';
-      }
-      logEntries.push({
-        page_url: page.page_url,
-        block_label: block.label || '',
-        block_edit_url: block.editUrl || '',
-        team_name: teamName || '',
-        status,
-        notes,
-        timestamp: new Date().toISOString()
-      });
-    }
-    return { mode: 'complete', scanOnly: true };
-  }
-
-  if (confirmBeforeAssign) {
-    const summary = buildConfirmSummary(workQueue, rules);
-    await chrome.storage.local.set({
-      [STORAGE_KEYS.pendingPhase2]: {
-        workQueue,
-        tabId,
-        renderWaitMs,
-        teamSeparator,
-        assignGapMs: guardrails.assignGapMs,
-        postSaveWaitMs: guardrails.postSaveWaitMs,
-        progressMeta: { pageLimit }
-      }
-    });
-    emitLog(
-      'info',
-      'Awaiting confirmation',
-      `Assignments paused: ${summary.queueLength} assignment(s). Open the dashboard and confirm to proceed.`
-    );
-    return { mode: 'await_confirm', summary };
-  }
-
-  emitLog('info', 'Assigning teams', `${workQueue.length} block assignment(s) queued (chunked for reliability).`);
-  await startPhase2Chunked(workQueue, { pageLimit });
-  return { mode: 'phase2_scheduled' };
-}
-
-async function startPhase2Chunked(workQueue, progressMeta) {
   const state = {
-    workQueue,
-    wi: 0,
-    prevPageUrl: null,
-    tabId: runTabId,
+    validPages,
+    pi: 0,
+    pageScanned: false,
+    currentBlocks: [],
+    bi: 0,
+    testFirstBlockOnly,
+    tabId,
     renderWaitMs,
     teamSeparator,
     assignGapMs: guardrails.assignGapMs,
     postSaveWaitMs: guardrails.postSaveWaitMs,
     anomalyState: createAnomalyState(),
-    progressTotal: workQueue.length,
-    pageLimit: progressMeta && progressMeta.pageLimit != null ? progressMeta.pageLimit : pages.length,
-    pageSummaries
+    pageSummaries: [],
+    pageLimit,
+    totalAssigned: 0,
+    maxAssignments: guardrails.maxAssignments,
+    maxAssignmentsReached: false
   };
   await chrome.storage.local.set({ [STORAGE_KEYS.phase2Chunk]: state });
-  await runPhase2NextBatch();
+  await runNextChunk();
+  return { mode: 'scheduled' };
 }
 
-async function runPhase2NextBatch() {
-  const { [STORAGE_KEYS.phase2Chunk]: raw } = await chrome.storage.local.get(STORAGE_KEYS.phase2Chunk);
-  if (!raw || !raw.workQueue || !raw.workQueue.length) {
-    return;
-  }
+/**
+ * Main processing loop.  Processes pages one at a time:
+ *   scan → assign blocks (in batches) → re-scan for "after" count → next page.
+ * Yields to a chrome.alarm between assignment batches for MV3 resilience.
+ */
+async function runNextChunk() {
+  const { [STORAGE_KEYS.phase2Chunk]: raw } = await chrome.storage.local.get(
+    STORAGE_KEYS.phase2Chunk
+  );
+  if (!raw || !raw.validPages || !raw.validPages.length) return;
+
   if ((await isRunCancelledStorage()) || cancelRequested) {
+    pageSummaries = Array.isArray(raw.pageSummaries) ? raw.pageSummaries : [];
     await chrome.storage.local.remove(STORAGE_KEYS.phase2Chunk);
-    try {
-      await chrome.alarms.clear(ASSIGN_ALARM);
-    } catch {
-      /* ignore */
-    }
-    emitLog('warn', 'Run stopped', 'Run cancelled during assignments.');
-    await finishPhase2Run(raw.pageLimit, false);
+    try { await chrome.alarms.clear(ASSIGN_ALARM); } catch { /* ignore */ }
+    emitLog('warn', 'Run stopped', 'Run cancelled.');
+    await finishRun(raw.pageLimit);
     return;
   }
 
   const rules = await loadRules();
   let {
-    workQueue,
-    wi,
-    prevPageUrl,
+    validPages,
+    pi,
+    pageScanned,
+    currentBlocks,
+    bi,
+    testFirstBlockOnly,
     tabId,
     renderWaitMs: rw,
     teamSeparator: sep,
     assignGapMs,
     postSaveWaitMs,
     anomalyState,
-    progressTotal,
+    pageSummaries: rawPS,
     pageLimit,
-    pageSummaries: rawPageSummaries
+    totalAssigned,
+    maxAssignments,
+    maxAssignmentsReached
   } = raw;
-  pageSummaries = Array.isArray(rawPageSummaries) ? rawPageSummaries : [];
+  pageSummaries = Array.isArray(rawPS) ? rawPS : [];
 
-  const end = Math.min(wi + ASSIGN_BATCH_SIZE, workQueue.length);
+  /* ── outer loop: iterate pages ──────────────────────────────────── */
+  while (pi < validPages.length && !maxAssignmentsReached) {
+    if ((await isRunCancelledStorage()) || cancelRequested) break;
 
-  for (; wi < end; wi += 1) {
-    if ((await isRunCancelledStorage()) || cancelRequested) {
-      await chrome.storage.local.set({
-        [STORAGE_KEYS.phase2Chunk]: {
-          ...raw,
-          wi,
-          prevPageUrl,
-          pageSummaries
-        }
-      });
-      await chrome.storage.local.remove(STORAGE_KEYS.phase2Chunk);
+    const page = validPages[pi];
+
+    /* ── SCAN current page if needed ──────────────────────────────── */
+    if (!pageScanned) {
       try {
-        await chrome.alarms.clear(ASSIGN_ALARM);
-      } catch {
-        /* ignore */
+        emitLog('info', `Page ${pi + 1}/${validPages.length}: navigate`, page.page_url);
+        await chrome.tabs.update(tabId, { url: page.page_url });
+        await waitForTabComplete(tabId);
+        if (rw > 0) await sleep(rw);
+
+        const scanResult = await sendScanBlocks(tabId);
+        const blocks = (scanResult && scanResult.blocks) || [];
+        if (scanResult && scanResult.error) {
+          emitLog('warn', 'Scan warning', scanResult.error);
+        }
+        const pageTitle =
+          scanResult && typeof scanResult.pageTitle === 'string' ? scanResult.pageTitle : '';
+        const pageTeam = getTeamForPage(page, rules, sep) || '';
+
+        pageSummaries.push({
+          page_title: pageTitle,
+          page_url: page.page_url,
+          page_team: pageTeam,
+          blocks_no_team_before: blocks.length,
+          blocks_no_team_after: null
+        });
+
+        currentBlocks = buildPageBlocks(blocks, testFirstBlockOnly);
+        bi = 0;
+        pageScanned = true;
+
+        emitLog(
+          'info',
+          `Page ${pi + 1}/${validPages.length}: scanned`,
+          `${blocks.length} block(s), ${currentBlocks.length} to assign`
+        );
+
+        if (!currentBlocks.length) {
+          pageSummaries[pageSummaries.length - 1].blocks_no_team_after = blocks.length;
+          pi++;
+          pageScanned = false;
+          currentBlocks = [];
+          bi = 0;
+          continue;
+        }
+      } catch (err) {
+        emitLog('error', `Page ${pi + 1}: scan failed`, String(err));
+        const pageTeam = getTeamForPage(page, rules, sep) || '';
+        pageSummaries.push({
+          page_title: '',
+          page_url: page.page_url,
+          page_team: pageTeam,
+          blocks_no_team_before: 0,
+          blocks_no_team_after: 0
+        });
+        pi++;
+        pageScanned = false;
+        currentBlocks = [];
+        bi = 0;
+        continue;
       }
-      emitLog('warn', 'Run stopped', 'Run cancelled during assignments.');
-      await finishPhase2Run(pageLimit, false);
-      return;
     }
 
-    const { page, blockIndex, block } = workQueue[wi];
+    /* ── ASSIGN batch on current page ─────────────────────────────── */
+    const end = Math.min(bi + ASSIGN_BATCH_SIZE, currentBlocks.length);
 
-    try {
-      if (wi > 0) {
-        await sleep(assignGapMs);
+    for (; bi < end; bi++) {
+      if ((await isRunCancelledStorage()) || cancelRequested) break;
+
+      if (maxAssignments > 0 && totalAssigned >= maxAssignments) {
+        emitLog(
+          'warn',
+          'Assignment cap reached',
+          `Stopped after ${totalAssigned} assignment(s) (max: ${maxAssignments}).`
+        );
+        maxAssignmentsReached = true;
+        break;
       }
-      if (page.page_url !== prevPageUrl) {
-        // We just finished all assignments for `prevPageUrl` because `workQueue` keeps pages grouped.
-        // Re-scan now (before navigating away) to capture the "after" block count.
-        if (prevPageUrl) {
+
+      const { blockIndex, block } = currentBlocks[bi];
+
+      try {
+        if (totalAssigned > 0) await sleep(assignGapMs);
+
+        const teamName = getTeamForPage(page, rules, sep);
+        let status = 'no_rule_match';
+        let notes = '';
+
+        if (!teamName) {
+          notes = 'no matching team for page';
+        } else if (!block.editUrl) {
+          status = 'error';
+          notes = 'missing editUrl for block';
+        } else {
           try {
-            emitLog('info', 'Output CSV: re-scan finished page', prevPageUrl);
-            const afterScan = await sendScanBlocks(tabId);
-            const afterBlocks = (afterScan && afterScan.blocks) || [];
-            const idx = pageSummaries.findIndex((s) => s.page_url === prevPageUrl);
-            if (idx !== -1) {
-              pageSummaries[idx].blocks_no_team_after = afterBlocks.length;
-              if (afterScan && typeof afterScan.pageTitle === 'string' && afterScan.pageTitle) {
-                pageSummaries[idx].page_title = afterScan.pageTitle;
-              }
-            }
-          } catch (e) {
-            emitLog('warn', 'Output CSV: re-scan failed', String(e));
+            emitLog(
+              'info',
+              `Page ${pi + 1}: assign (${bi + 1}/${currentBlocks.length})`,
+              `${teamName} — ${block.label || ''} [index ${blockIndex}]`
+            );
+            const result = await sendAssignTeam(tabId, teamName, blockIndex, postSaveWaitMs);
+            status = result.status;
+            notes = result.notes || '';
+            emitAssignResultLog(status, notes);
+          } catch (err) {
+            status = 'error';
+            notes = String(err);
+            emitLog('error', 'Assign threw', notes);
           }
         }
 
-        emitLog('info', `Assign: navigate`, page.page_url);
-        await chrome.tabs.update(tabId, { url: page.page_url });
-        await waitForTabComplete(tabId);
-        if (rw > 0) {
-          await sleep(rw);
-        }
-        prevPageUrl = page.page_url;
-      }
+        totalAssigned++;
 
-      const teamName = getTeamForPage(page, rules, sep);
-      let status = 'no_rule_match';
-      let notes = '';
-
-      if (!teamName) {
-        notes = 'no matching team for page';
-      } else if (!block.editUrl) {
-        status = 'error';
-        notes = 'missing editUrl for block';
-      } else {
-        try {
-          emitLog(
-            'info',
-            `Assign team (${wi + 1}/${progressTotal})`,
-            `${teamName} — ${block.label || ''} [index ${blockIndex}]`
-          );
-          const result = await sendAssignTeam(tabId, teamName, blockIndex, postSaveWaitMs);
-          status = result.status;
-          notes = result.notes || '';
-          emitAssignResultLog(status, notes);
-        } catch (err) {
-          status = 'error';
-          notes = String(err);
-          emitLog('error', 'Assign threw', notes);
-        }
-      }
-
-      logEntries.push({
-        page_url: page.page_url,
-        block_label: block.label || '',
-        block_edit_url: block.editUrl || '',
-        team_name: teamName || '',
-        status,
-        notes,
-        timestamp: new Date().toISOString()
-      });
-
-      chrome.runtime
-        .sendMessage({
-          type: 'PROGRESS_UPDATE',
-          currentIndex: wi + 1,
-          total: progressTotal,
-          successCount: logEntries.filter((l) => isAssignmentOk(l.status)).length,
-          errorCount: logEntries.filter((l) => !isAssignmentOk(l.status)).length,
-          lastEntry: logEntries[logEntries.length - 1]
-        })
-        .catch(() => {});
-      anomalyState = updateAnomalyState(anomalyState, status, notes);
-      const pauseReason = getAnomalyPauseReason(anomalyState);
-      if (pauseReason) {
-        const pausedChunk = {
-          workQueue,
-          wi: wi + 1,
-          prevPageUrl,
-          tabId,
-          renderWaitMs: rw,
-          teamSeparator: sep,
-          assignGapMs,
-          postSaveWaitMs,
-          anomalyState,
-          progressTotal,
-          pageLimit,
-          pageSummaries
-        };
-        await chrome.storage.local.set({
-          [STORAGE_KEYS.autoPausePhase2]: { reason: pauseReason, phase2Chunk: pausedChunk }
+        logEntries.push({
+          page_url: page.page_url,
+          block_label: block.label || '',
+          block_edit_url: block.editUrl || '',
+          team_name: teamName || '',
+          status,
+          notes,
+          timestamp: new Date().toISOString()
         });
-        await chrome.storage.local.remove(STORAGE_KEYS.phase2Chunk);
-        try {
-          await chrome.alarms.clear(ASSIGN_ALARM);
-        } catch {
-          /* ignore */
-        }
-        running = false;
-        await chrome.storage.local.remove(STORAGE_KEYS.runActive);
-        emitLog('warn', 'Auto-paused', pauseReason);
+
         chrome.runtime
           .sendMessage({
-            type: 'AUTO_PAUSED_PHASE2',
-            reason: pauseReason
+            type: 'PROGRESS_UPDATE',
+            currentIndex: bi + 1,
+            total: currentBlocks.length,
+            pageIndex: pi + 1,
+            pageTotal: validPages.length,
+            successCount: logEntries.filter((l) => isAssignmentOk(l.status)).length,
+            errorCount: logEntries.filter((l) => !isAssignmentOk(l.status)).length,
+            lastEntry: logEntries[logEntries.length - 1]
           })
           .catch(() => {});
-        return;
+
+        anomalyState = updateAnomalyState(anomalyState, status, notes);
+        const pauseReason = getAnomalyPauseReason(anomalyState);
+        if (pauseReason) {
+          const pausedChunk = {
+            ...raw,
+            pi,
+            pageScanned,
+            currentBlocks,
+            bi: bi + 1,
+            pageSummaries,
+            totalAssigned,
+            anomalyState,
+            maxAssignmentsReached
+          };
+          await chrome.storage.local.set({
+            [STORAGE_KEYS.autoPausePhase2]: { reason: pauseReason, phase2Chunk: pausedChunk }
+          });
+          await chrome.storage.local.remove(STORAGE_KEYS.phase2Chunk);
+          try { await chrome.alarms.clear(ASSIGN_ALARM); } catch { /* ignore */ }
+          running = false;
+          await chrome.storage.local.remove(STORAGE_KEYS.runActive);
+          emitLog('warn', 'Auto-paused', pauseReason);
+          chrome.runtime
+            .sendMessage({ type: 'AUTO_PAUSED_PHASE2', reason: pauseReason })
+            .catch(() => {});
+          return;
+        }
+      } catch (err) {
+        const errMsg = String(err);
+        emitLog('error', 'Assign: error', errMsg);
+        totalAssigned++;
+        logEntries.push({
+          page_url: page.page_url,
+          block_label: block.label || '',
+          block_edit_url: block.editUrl || '',
+          team_name: '',
+          status: 'error',
+          notes: errMsg,
+          timestamp: new Date().toISOString()
+        });
+        chrome.runtime
+          .sendMessage({
+            type: 'PROGRESS_UPDATE',
+            currentIndex: bi + 1,
+            total: currentBlocks.length,
+            pageIndex: pi + 1,
+            pageTotal: validPages.length,
+            successCount: logEntries.filter((l) => isAssignmentOk(l.status)).length,
+            errorCount: logEntries.filter((l) => !isAssignmentOk(l.status)).length,
+            lastEntry: logEntries[logEntries.length - 1]
+          })
+          .catch(() => {});
       }
-    } catch (err) {
-      const errMsg = String(err);
-      emitLog('error', `Assign: error`, errMsg);
-      logEntries.push({
-        page_url: page.page_url,
-        block_label: block.label || '',
-        block_edit_url: block.editUrl || '',
-        team_name: '',
-        status: 'error',
-        notes: errMsg,
-        timestamp: new Date().toISOString()
-      });
-
-      chrome.runtime
-        .sendMessage({
-          type: 'PROGRESS_UPDATE',
-          currentIndex: wi + 1,
-          total: progressTotal,
-          successCount: logEntries.filter((l) => isAssignmentOk(l.status)).length,
-          errorCount: logEntries.filter((l) => !isAssignmentOk(l.status)).length,
-          lastEntry: logEntries[logEntries.length - 1]
-        })
-        .catch(() => {});
     }
-  }
 
-  const nextState = {
-    workQueue,
-    wi,
-    prevPageUrl,
-    tabId,
-    renderWaitMs: rw,
-    teamSeparator: sep,
-    assignGapMs,
-    postSaveWaitMs,
-    anomalyState,
-    progressTotal,
-    pageLimit,
-    pageSummaries
-  };
-
-  if (wi >= workQueue.length) {
-    // Last processed page is still loaded in the tab: capture its "after" count.
-    if (prevPageUrl) {
+    /* ── page done? ───────────────────────────────────────────────── */
+    if (bi >= currentBlocks.length || maxAssignmentsReached) {
       try {
-        emitLog('info', 'Output CSV: re-scan finished page', prevPageUrl);
-        const finalScan = await sendScanBlocks(tabId);
-        const finalBlocks = (finalScan && finalScan.blocks) || [];
-        const idx = pageSummaries.findIndex((s) => s.page_url === prevPageUrl);
-        if (idx !== -1) {
-          pageSummaries[idx].blocks_no_team_after = finalBlocks.length;
-          if (finalScan && typeof finalScan.pageTitle === 'string' && finalScan.pageTitle) {
-            pageSummaries[idx].page_title = finalScan.pageTitle;
+        emitLog('info', `Page ${pi + 1}: re-scanning for after count`, page.page_url);
+        const afterScan = await sendScanBlocks(tabId);
+        const afterBlocks = (afterScan && afterScan.blocks) || [];
+        const summaryIdx = pageSummaries.findIndex((s) => s.page_url === page.page_url);
+        if (summaryIdx !== -1) {
+          pageSummaries[summaryIdx].blocks_no_team_after = afterBlocks.length;
+          if (afterScan && typeof afterScan.pageTitle === 'string' && afterScan.pageTitle) {
+            pageSummaries[summaryIdx].page_title = afterScan.pageTitle;
           }
         }
       } catch (e) {
-        emitLog('warn', 'Output CSV: final re-scan failed', String(e));
+        emitLog('warn', 'Re-scan for after count failed', String(e));
       }
+
+      pi++;
+      pageScanned = false;
+      currentBlocks = [];
+      bi = 0;
+      continue;
     }
 
-    await chrome.storage.local.remove(STORAGE_KEYS.phase2Chunk);
-    try {
-      await chrome.alarms.clear(ASSIGN_ALARM);
-    } catch {
-      /* ignore */
-    }
-    emitLog('info', 'Run complete', `${progressTotal} assignment(s) processed.`);
-    await finishPhase2Run(pageLimit, false);
+    /* ── more blocks on this page — YIELD via alarm ───────────────── */
+    await chrome.storage.local.set({
+      [STORAGE_KEYS.phase2Chunk]: {
+        ...raw,
+        pi,
+        pageScanned,
+        currentBlocks,
+        bi,
+        pageSummaries,
+        totalAssigned,
+        anomalyState,
+        maxAssignmentsReached
+      }
+    });
+    try { await chrome.alarms.clear(ASSIGN_ALARM); } catch { /* ignore */ }
+    chrome.alarms.create(ASSIGN_ALARM, { delayInMinutes: ASSIGN_ALARM_DELAY_MIN });
     return;
   }
 
-  await chrome.storage.local.set({ [STORAGE_KEYS.phase2Chunk]: nextState });
-  try {
-    await chrome.alarms.clear(ASSIGN_ALARM);
-  } catch {
-    /* ignore */
-  }
-  chrome.alarms.create(ASSIGN_ALARM, { delayInMinutes: ASSIGN_ALARM_DELAY_MIN });
+  /* ── all pages processed (or cancelled / capped) ────────────────── */
+  await chrome.storage.local.remove(STORAGE_KEYS.phase2Chunk);
+  try { await chrome.alarms.clear(ASSIGN_ALARM); } catch { /* ignore */ }
+  emitLog(
+    'info',
+    'Run complete',
+    `${validPages.length} page(s) processed, ${totalAssigned} assignment(s).`
+  );
+  await finishRun(pageLimit);
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ASSIGN_ALARM) {
-    runPhase2NextBatch().catch((e) => emitLog('error', 'Assign chunk failed', String(e)));
+    runNextChunk().catch((e) => emitLog('error', 'Chunk processing failed', String(e)));
   }
 });
+
+/* ─── utilities ───────────────────────────────────────────────────── */
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1079,6 +875,8 @@ async function sendScanBlocks(tabId) {
   return response || { blocks: [] };
 }
 
+/* ─── CSV downloads ───────────────────────────────────────────────── */
+
 function downloadLogCsv() {
   if (!logEntries.length) return;
 
@@ -1104,15 +902,8 @@ function downloadLogCsv() {
     lines.push(line);
   }
 
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-  // MV3 service workers don't always support URL.createObjectURL; use data URLs instead.
   const url = `data:text/csv;charset=utf-8,${encodeURIComponent(lines.join('\n'))}`;
-
-  chrome.downloads.download({
-    url,
-    filename: 'run_log.csv',
-    saveAs: true
-  });
+  chrome.downloads.download({ url, filename: 'run_log.csv', saveAs: true });
 }
 
 async function downloadOutputCsv() {
@@ -1149,13 +940,6 @@ async function downloadOutputCsv() {
     lines.push(line);
   }
 
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-  // MV3 service workers don't always support URL.createObjectURL; use data URLs instead.
   const url = `data:text/csv;charset=utf-8,${encodeURIComponent(lines.join('\n'))}`;
-
-  chrome.downloads.download({
-    url,
-    filename: 'output.csv',
-    saveAs: true
-  });
+  chrome.downloads.download({ url, filename: 'output.csv', saveAs: true });
 }
