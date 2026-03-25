@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Data / run artifacts (site-specific, not for publish)
+*.csv
+!extension/rules_default.json
+config.json
+run_log.csv
+output.csv
+
+# HTML fixtures
+block_no_team.html
+block_setting_edit_no_team.html
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.cursor/
+.vscode/
+*.swp
+*.swo
+*~
