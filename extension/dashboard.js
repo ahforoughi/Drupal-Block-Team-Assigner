@@ -38,11 +38,15 @@ const autoPauseModal = document.getElementById('autoPauseModal');
 const autoPauseReason = document.getElementById('autoPauseReason');
 const autoPauseCloseBtn = document.getElementById('autoPauseCloseBtn');
 const autoPauseResumeBtn = document.getElementById('autoPauseResumeBtn');
+const setOutputFileBtn = document.getElementById('setOutputFileBtn');
+const outputFileStatus = document.getElementById('outputFileStatus');
 
 let pages = [];
 let inputFileName = '';
 let activityLines = [];
 let isRunning = false;
+let outputFileHandle = null;
+let outputCsvRows = [];
 
 const LOG_SESSION_KEY = 'activityLogLines';
 const MAX_LOG_LINES = 500;
@@ -366,6 +370,56 @@ function closeAutoPauseModal() {
   autoPauseModal.classList.remove('open');
 }
 
+function formatOutputCsvRow(row) {
+  const keys = ['page_title', 'page_url', 'page_team', 'blocks_no_team_before', 'blocks_no_team_after'];
+  return keys
+    .map((k) => {
+      const raw = row && row[k] != null ? row[k] : '';
+      return `"${String(raw).replace(/"/g, '""')}"`;
+    })
+    .join(',');
+}
+
+async function writeOutputCsvToFile() {
+  if (!outputFileHandle) return;
+  const header = 'page_title,page_url,page_team,blocks_no_team_before,blocks_no_team_after';
+  const lines = [header, ...outputCsvRows.map(formatOutputCsvRow)];
+  try {
+    const writable = await outputFileHandle.createWritable();
+    await writable.write(lines.join('\n') + '\n');
+    await writable.close();
+  } catch (e) {
+    appendActivityLine({
+      level: 'error',
+      message: `Output file write failed: ${String(e)}`,
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+
+setOutputFileBtn.addEventListener('click', async () => {
+  try {
+    outputFileHandle = await window.showSaveFilePicker({
+      suggestedName: 'output.csv',
+      types: [{ description: 'CSV files', accept: { 'text/csv': ['.csv'] } }]
+    });
+    outputFileStatus.textContent = outputFileHandle.name;
+    appendActivityLine({
+      level: 'success',
+      message: `Output file set: ${outputFileHandle.name}`,
+      timestamp: new Date().toISOString()
+    });
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      appendActivityLine({
+        level: 'error',
+        message: `Failed to pick output file: ${String(e)}`,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+});
+
 teamSeparatorSelect.addEventListener('change', async () => {
   await saveRunOptionsToStorage();
 });
@@ -388,15 +442,19 @@ renderWaitMsInput.addEventListener('change', () => saveRunOptionsToStorage());
 ].forEach((el) => el.addEventListener('change', () => saveRunOptionsToStorage()));
 
 testRunBtn.addEventListener('click', async () => {
+  outputCsvRows = [];
   await pushPagesToBackground();
   chrome.runtime.sendMessage(buildStartRunMessage('test', 1));
   setRunningState(true);
+  writeOutputCsvToFile();
 });
 
 fullRunBtn.addEventListener('click', async () => {
+  outputCsvRows = [];
   await pushPagesToBackground();
   chrome.runtime.sendMessage(buildStartRunMessage('full'));
   setRunningState(true);
+  writeOutputCsvToFile();
 });
 
 downloadLogBtn.addEventListener('click', () => {
@@ -462,9 +520,11 @@ allBlocksBtn.addEventListener('click', async () => {
   inputFileName = '(selected tab)';
   fileSummaryEl.textContent = inputFileName;
   rowSummaryEl.textContent = '1 page – all blocks';
+  outputCsvRows = [];
   await pushPagesToBackground();
   chrome.runtime.sendMessage(buildStartRunMessage('full'));
   setRunningState(true);
+  writeOutputCsvToFile();
 });
 
 refreshTabsBtn.addEventListener('click', refreshTabList);
@@ -579,6 +639,10 @@ chrome.runtime.onMessage.addListener((msg) => {
       message: `${pagePart}block ${currentIndex}/${total} (ok: ${successCount}, err: ${errorCount})`,
       timestamp: new Date().toISOString()
     });
+  }
+  if (msg.type === 'PAGE_SUMMARY_UPDATE' && msg.summary) {
+    outputCsvRows.push(msg.summary);
+    writeOutputCsvToFile();
   }
   if (msg.type === 'RUN_COMPLETE') {
     const { total, pageCount, successCount, errorCount } = msg;

@@ -61,6 +61,10 @@ function emitLog(level, message, details) {
   chrome.runtime.sendMessage({ type: 'LOG_ENTRY', entry }).catch(() => {});
 }
 
+function emitPageSummary(summary) {
+  chrome.runtime.sendMessage({ type: 'PAGE_SUMMARY_UPDATE', summary }).catch(() => {});
+}
+
 function normalizePathPrefix(prefix) {
   const p = (prefix || '').trim();
   if (!p) return '';
@@ -330,7 +334,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'STOP_RUN') {
     cancelRequested = true;
     setRunCancelled();
-    emitLog('warn', 'Stop requested', '');
+    running = false;
+    chrome.storage.local
+      .remove([STORAGE_KEYS.phase2Chunk, STORAGE_KEYS.runActive, STORAGE_KEYS.autoPausePhase2])
+      .catch(() => {});
+    chrome.alarms.clear(ASSIGN_ALARM).catch(() => {});
+    emitLog('warn', 'Run stopped', 'State cleared — you can start a new run.');
   }
 });
 
@@ -532,6 +541,7 @@ async function runNextChunk() {
 
         if (!currentBlocks.length) {
           pageSummaries[pageSummaries.length - 1].blocks_no_team_after = blocks.length;
+          emitPageSummary(pageSummaries[pageSummaries.length - 1]);
           pi++;
           pageScanned = false;
           currentBlocks = [];
@@ -541,13 +551,15 @@ async function runNextChunk() {
       } catch (err) {
         emitLog('error', `Page ${pi + 1}: scan failed`, String(err));
         const pageTeam = getTeamForPage(page, rules, sep) || '';
-        pageSummaries.push({
+        const failSummary = {
           page_title: '',
           page_url: page.page_url,
           page_team: pageTeam,
           blocks_no_team_before: 0,
           blocks_no_team_after: 0
-        });
+        };
+        pageSummaries.push(failSummary);
+        emitPageSummary(failSummary);
         pi++;
         pageScanned = false;
         currentBlocks = [];
@@ -700,6 +712,9 @@ async function runNextChunk() {
       } catch (e) {
         emitLog('warn', 'Re-scan for after count failed', String(e));
       }
+
+      const doneSummary = pageSummaries.find((s) => s.page_url === page.page_url);
+      if (doneSummary) emitPageSummary(doneSummary);
 
       pi++;
       pageScanned = false;
