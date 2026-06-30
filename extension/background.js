@@ -312,8 +312,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       await clearRunCancelled();
       await chrome.storage.local.set({ [STORAGE_KEYS.runActive]: true });
       await chrome.storage.local.remove(STORAGE_KEYS.autoPausePhase2);
-      await chrome.storage.local.set({ [STORAGE_KEYS.phase2Chunk]: paused.phase2Chunk });
-      emitLog('warn', 'Run resumed after auto-pause', paused.reason || '');
+      const resumedChunk = paused.phase2Chunk;
+      resumedChunk.anomalyState = createAnomalyState();
+      await chrome.storage.local.set({ [STORAGE_KEYS.phase2Chunk]: resumedChunk });
+      emitLog('warn', 'Run resumed after auto-pause (anomaly counters reset)', paused.reason || '');
       await runNextChunk();
     })().catch((e) => {
       emitLog('error', 'Resume auto-pause failed', String(e));
@@ -693,24 +695,47 @@ async function runNextChunk() {
             lastEntry: logEntries[logEntries.length - 1]
           })
           .catch(() => {});
+
+        anomalyState = updateAnomalyState(anomalyState, 'error', errMsg);
+        const pauseReason = getAnomalyPauseReason(anomalyState);
+        if (pauseReason) {
+          const pausedChunk = {
+            ...raw,
+            pi,
+            pageScanned,
+            currentBlocks,
+            bi: bi + 1,
+            pageSummaries,
+            totalAssigned,
+            anomalyState,
+            maxAssignmentsReached
+          };
+          await chrome.storage.local.set({
+            [STORAGE_KEYS.autoPausePhase2]: { reason: pauseReason, phase2Chunk: pausedChunk }
+          });
+          await chrome.storage.local.remove(STORAGE_KEYS.phase2Chunk);
+          try { await chrome.alarms.clear(ASSIGN_ALARM); } catch { /* ignore */ }
+          running = false;
+          await chrome.storage.local.remove(STORAGE_KEYS.runActive);
+          emitLog('warn', 'Auto-paused', pauseReason);
+          chrome.runtime
+            .sendMessage({ type: 'AUTO_PAUSED_PHASE2', reason: pauseReason })
+            .catch(() => {});
+          return;
+        }
       }
     }
 
     /* ── page done? ───────────────────────────────────────────────── */
     if (bi >= currentBlocks.length || maxAssignmentsReached) {
-      try {
-        emitLog('info', `Page ${pi + 1}: re-scanning for after count`, page.page_url);
-        const afterScan = await sendScanBlocks(tabId);
-        const afterBlocks = (afterScan && afterScan.blocks) || [];
-        const summaryIdx = pageSummaries.findIndex((s) => s.page_url === page.page_url);
-        if (summaryIdx !== -1) {
-          pageSummaries[summaryIdx].blocks_no_team_after = afterBlocks.length;
-          if (afterScan && typeof afterScan.pageTitle === 'string' && afterScan.pageTitle) {
-            pageSummaries[summaryIdx].page_title = afterScan.pageTitle;
-          }
-        }
-      } catch (e) {
-        emitLog('warn', 'Re-scan for after count failed', String(e));
+      const summaryIdx = pageSummaries.findIndex((s) => s.page_url === page.page_url);
+      if (summaryIdx !== -1) {
+        const pageEntries = logEntries.filter((e) => e.page_url === page.page_url);
+        const assignedCount = pageEntries.filter(
+          (e) => e.status === 'success' || e.status === 'already_set'
+        ).length;
+        const before = pageSummaries[summaryIdx].blocks_no_team_before || 0;
+        pageSummaries[summaryIdx].blocks_no_team_after = Math.max(0, before - assignedCount);
       }
 
       const doneSummary = pageSummaries.find((s) => s.page_url === page.page_url);
