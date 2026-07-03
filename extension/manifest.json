@@ -19,12 +19,12 @@
     "alarms"
   ],
   "host_permissions": [
-    "https://arts.ucalgary.ca/*"
+    "https://outdoor-centre.ucalgary.ca/*"
   ],
   "content_scripts": [
     {
       "matches": [
-        "https://arts.ucalgary.ca/*"
+        "https://outdoor-centre.ucalgary.ca/*"
       ],
       "js": [
         "content.js"
