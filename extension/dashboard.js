@@ -1,4 +1,4 @@
-const DASHBOARD_HOST_MATCH = 'https://arts.ucalgary.ca/';
+const DASHBOARD_HOST_MATCH = 'https://outdoor-centre.ucalgary.ca/';
 
 const csvFileInput = document.getElementById('csvFile');
 const testRunBtn = document.getElementById('testRunBtn');
@@ -117,7 +117,7 @@ async function refreshTabList() {
   if (!tabs.length) {
     const opt = document.createElement('option');
     opt.value = '';
-    opt.textContent = 'No arts.ucalgary.ca tabs open';
+    opt.textContent = 'No outdoor-centre.ucalgary.ca tabs open';
     tabSelect.appendChild(opt);
     return;
   }
@@ -164,13 +164,13 @@ function parseCsv(text, separator) {
 
 function parseAllowedOriginInput() {
   const raw = (allowedOriginInput.value || '').trim();
-  if (!raw) return 'https://arts.ucalgary.ca';
+  if (!raw) return 'https://outdoor-centre.ucalgary.ca';
   try {
     const u = new URL(raw.includes('://') ? raw : `https://${raw}`);
-    if (u.protocol !== 'https:') return 'https://arts.ucalgary.ca';
+    if (u.protocol !== 'https:') return 'https://outdoor-centre.ucalgary.ca';
     return `${u.protocol}//${u.host}`;
   } catch {
-    return 'https://arts.ucalgary.ca';
+    return 'https://outdoor-centre.ucalgary.ca';
   }
 }
 
@@ -239,7 +239,7 @@ async function loadRunOptionsFromStorage() {
   if (typeof data.guardrailAllowedOrigin === 'string' && data.guardrailAllowedOrigin) {
     allowedOriginInput.value = data.guardrailAllowedOrigin;
   } else {
-    allowedOriginInput.value = 'https://arts.ucalgary.ca';
+    allowedOriginInput.value = 'https://outdoor-centre.ucalgary.ca';
   }
   if (typeof data.guardrailPathPrefix === 'string') pathPrefixInput.value = data.guardrailPathPrefix;
   if (typeof data.guardrailMaxPages === 'number') maxPagesInput.value = String(data.guardrailMaxPages);
@@ -508,10 +508,10 @@ allBlocksBtn.addEventListener('click', async () => {
     return;
   }
   const tab = await chrome.tabs.get(tid);
-  if (!tab.url || !tab.url.startsWith('https://arts.ucalgary.ca')) {
+  if (!tab.url || !tab.url.startsWith('https://outdoor-centre.ucalgary.ca')) {
     appendActivityLine({
       level: 'error',
-      message: 'Selected tab must be an arts.ucalgary.ca page',
+      message: 'Selected tab must be an outdoor-centre.ucalgary.ca page',
       timestamp: new Date().toISOString()
     });
     return;
