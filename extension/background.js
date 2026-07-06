@@ -22,7 +22,7 @@ const STORAGE_KEYS = {
 };
 
 let guardrails = {
-  allowedOrigin: 'https://outdoor-centre.ucalgary.ca',
+  allowedOrigin: 'https://arts.ucalgary.ca',
   pathPrefix: '',
   maxPages: 0,
   maxAssignments: 0,

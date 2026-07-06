@@ -1,4 +1,16 @@
-const DASHBOARD_HOST_MATCH = 'https://outdoor-centre.ucalgary.ca/';
+// Tabs the extension can drive — must stay within manifest host_permissions /
+// content_scripts.matches. Pin a single site per run via the "Allowed origin"
+// guardrail below; this only decides which tabs show up in the Target tab list.
+const TAB_QUERY_URL = 'https://*.ucalgary.ca/*';
+
+function isSupportedTabUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && /(^|\.)ucalgary\.ca$/i.test(u.host);
+  } catch {
+    return false;
+  }
+}
 
 const csvFileInput = document.getElementById('csvFile');
 const testRunBtn = document.getElementById('testRunBtn');
@@ -112,12 +124,12 @@ function getSelectedTabId() {
 
 async function refreshTabList() {
   const selected = getSelectedTabId();
-  const tabs = await chrome.tabs.query({ url: `${DASHBOARD_HOST_MATCH}*` });
+  const tabs = await chrome.tabs.query({ url: TAB_QUERY_URL });
   tabSelect.innerHTML = '';
   if (!tabs.length) {
     const opt = document.createElement('option');
     opt.value = '';
-    opt.textContent = 'No outdoor-centre.ucalgary.ca tabs open';
+    opt.textContent = 'No ucalgary.ca tabs open';
     tabSelect.appendChild(opt);
     return;
   }
@@ -150,7 +162,7 @@ function parseCsv(text, separator) {
     return [];
   }
 
-  return lines
+  const result = lines
     .slice(1)
     .map((line) => {
       const cols = line.split(',');
@@ -160,17 +172,18 @@ function parseCsv(text, separator) {
       };
     })
     .filter((row) => row.page_url);
+  return result;
 }
 
 function parseAllowedOriginInput() {
   const raw = (allowedOriginInput.value || '').trim();
-  if (!raw) return 'https://outdoor-centre.ucalgary.ca';
+  if (!raw) return 'https://arts.ucalgary.ca';
   try {
     const u = new URL(raw.includes('://') ? raw : `https://${raw}`);
-    if (u.protocol !== 'https:') return 'https://outdoor-centre.ucalgary.ca';
+    if (u.protocol !== 'https:') return 'https://arts.ucalgary.ca';
     return `${u.protocol}//${u.host}`;
   } catch {
-    return 'https://outdoor-centre.ucalgary.ca';
+    return 'https://arts.ucalgary.ca';
   }
 }
 
@@ -239,7 +252,7 @@ async function loadRunOptionsFromStorage() {
   if (typeof data.guardrailAllowedOrigin === 'string' && data.guardrailAllowedOrigin) {
     allowedOriginInput.value = data.guardrailAllowedOrigin;
   } else {
-    allowedOriginInput.value = 'https://outdoor-centre.ucalgary.ca';
+    allowedOriginInput.value = 'https://arts.ucalgary.ca';
   }
   if (typeof data.guardrailPathPrefix === 'string') pathPrefixInput.value = data.guardrailPathPrefix;
   if (typeof data.guardrailMaxPages === 'number') maxPagesInput.value = String(data.guardrailMaxPages);
@@ -508,10 +521,10 @@ allBlocksBtn.addEventListener('click', async () => {
     return;
   }
   const tab = await chrome.tabs.get(tid);
-  if (!tab.url || !tab.url.startsWith('https://outdoor-centre.ucalgary.ca')) {
+  if (!isSupportedTabUrl(tab.url)) {
     appendActivityLine({
       level: 'error',
-      message: 'Selected tab must be an outdoor-centre.ucalgary.ca page',
+      message: 'Selected tab must be an https ucalgary.ca page',
       timestamp: new Date().toISOString()
     });
     return;

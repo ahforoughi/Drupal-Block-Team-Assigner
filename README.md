@@ -9,7 +9,11 @@ A Chrome extension that bulk-assigns Drupal teams to blocks that are missing one
 3. Click **Load unpacked** and select the `extension/` folder from this repo.
 4. Open your Drupal site in a browser tab and log in with permissions to edit blocks.
 
-To target a different site, edit `extension/manifest.json` — update `host_permissions` and `content_scripts.matches` to your site's origin (e.g. `https://your-site.example.com/*`). Then set the same origin in the dashboard **Allowed origin** guardrail.
+### Which sites it runs on
+
+Out of the box the extension works on **any `https://*.ucalgary.ca` site** (arts, outdoor-centre, other faculty Drupal sites — all covered by one build). To keep each batch scoped to a single site, set that site in the dashboard **Allowed origin** guardrail: only CSV `page_url`s on that origin are processed; everything else is logged as `skipped_invalid_url`.
+
+To run on a domain outside `ucalgary.ca`, edit `extension/manifest.json` — add your origin (e.g. `https://your-site.example.com/*`) to both `host_permissions` and `content_scripts.matches` — then reload the extension. The dashboard Target-tab list also filters to `*.ucalgary.ca`; widen `TAB_QUERY_URL` / `isSupportedTabUrl` in `extension/dashboard.js` to include the new domain.
 
 ## How it works
 
