@@ -1,6 +1,6 @@
 // Tabs the extension can drive — must stay within manifest host_permissions /
-// content_scripts.matches. Pin a single site per run via the "Allowed origin"
-// guardrail below; this only decides which tabs show up in the Target tab list.
+// content_scripts.matches. The "Allowed site" guardrail (auto-filled from the
+// tab you pick) pins a single origin per run.
 const TAB_QUERY_URL = 'https://*.ucalgary.ca/*';
 
 function isSupportedTabUrl(url) {
@@ -13,24 +13,34 @@ function isSupportedTabUrl(url) {
 }
 
 const csvFileInput = document.getElementById('csvFile');
+const addCurrentTabBtn = document.getElementById('addCurrentTabBtn');
 const testRunBtn = document.getElementById('testRunBtn');
 const fullRunBtn = document.getElementById('fullRunBtn');
 const downloadLogBtn = document.getElementById('downloadLogBtn');
 const downloadOutputBtn = document.getElementById('downloadOutputBtn');
 const stopRunBtn = document.getElementById('stopRunBtn');
-const useCurrentPageBtn = document.getElementById('useCurrentPageBtn');
-const allBlocksBtn = document.getElementById('allBlocksBtn');
 const renderWaitMsInput = document.getElementById('renderWaitMs');
-const teamSeparatorSelect = document.getElementById('teamSeparator');
 const fileSummaryEl = document.getElementById('fileSummary');
 const rowSummaryEl = document.getElementById('rowSummary');
 const runBadge = document.getElementById('runBadge');
 const tabSelect = document.getElementById('tabSelect');
 const refreshTabsBtn = document.getElementById('refreshTabsBtn');
-const rulesText = document.getElementById('rulesText');
-const saveRulesBtn = document.getElementById('saveRulesBtn');
-const resetRulesBtn = document.getElementById('resetRulesBtn');
-const rulesStatus = document.getElementById('rulesStatus');
+const assignPageTeamCheckbox = document.getElementById('assignPageTeam');
+
+const targetsBody = document.getElementById('targetsBody');
+const saveTargetsBtn = document.getElementById('saveTargetsBtn');
+const addTargetBtn = document.getElementById('addTargetBtn');
+const downloadCleanCsvBtn = document.getElementById('downloadCleanCsvBtn');
+const targetsStatus = document.getElementById('targetsStatus');
+
+const statPages = document.getElementById('statPages');
+const statBlocks = document.getElementById('statBlocks');
+const statOk = document.getElementById('statOk');
+const statFail = document.getElementById('statFail');
+const failuresList = document.getElementById('failuresList');
+const failuresHeading = document.getElementById('failuresHeading');
+const copyFailuresBtn = document.getElementById('copyFailuresBtn');
+
 const activityLogEl = document.getElementById('activityLog');
 const copyActivityBtn = document.getElementById('copyActivityBtn');
 const clearActivityBtn = document.getElementById('clearActivityBtn');
@@ -59,6 +69,8 @@ let activityLines = [];
 let isRunning = false;
 let outputFileHandle = null;
 let outputCsvRows = [];
+let runEntries = [];
+let scannedPageUrls = new Set();
 
 const LOG_SESSION_KEY = 'activityLogLines';
 const MAX_LOG_LINES = 500;
@@ -143,37 +155,168 @@ async function refreshTabList() {
   if (selected && tabs.some((t) => t.id === selected)) {
     tabSelect.value = String(selected);
   }
+  await syncAllowedOriginFromTab();
 }
 
-function parseCsv(text, separator) {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length <= 1) return [];
+/* ─── CSV preprocessing ───────────────────────────────────────────────
+ * Non-tech-friendly parsing: one team per URL, tolerant of spaces after the
+ * comma, optional header row, and surrounding quotes.
+ */
 
-  const header = lines[0].split(',').map((h) => h.trim());
-  const idxPageUrl = header.indexOf('page_url');
-  const idxTeams = header.indexOf('page_teams');
-
-  if (idxPageUrl === -1) {
-    appendActivityLine({
-      level: 'error',
-      message: 'CSV must have a page_url column',
-      timestamp: new Date().toISOString()
-    });
-    return [];
+function stripQuotes(s) {
+  const t = (s || '').trim();
+  if (
+    t.length >= 2 &&
+    ((t[0] === '"' && t[t.length - 1] === '"') || (t[0] === "'" && t[t.length - 1] === "'"))
+  ) {
+    return t.slice(1, -1).trim();
   }
-
-  const result = lines
-    .slice(1)
-    .map((line) => {
-      const cols = line.split(',');
-      return {
-        page_url: (cols[idxPageUrl] || '').trim(),
-        page_teams: idxTeams === -1 ? '' : (cols[idxTeams] || '').trim()
-      };
-    })
-    .filter((row) => row.page_url);
-  return result;
+  return t;
 }
+
+function splitUrlTeam(line) {
+  const idx = line.indexOf(',');
+  if (idx === -1) return { page_url: stripQuotes(line), page_teams: '' };
+  const url = stripQuotes(line.slice(0, idx));
+  // Everything after the first comma is the team; drop any trailing empty columns.
+  const team = stripQuotes(line.slice(idx + 1).trim().replace(/,+\s*$/, ''));
+  return { page_url: url, page_teams: team };
+}
+
+function isHeaderRow(row) {
+  const u = (row.page_url || '').toLowerCase();
+  const t = (row.page_teams || '').toLowerCase();
+  return (
+    u === 'page_url' ||
+    u === 'url' ||
+    u === 'page url' ||
+    t === 'page_teams' ||
+    t === 'team' ||
+    t === 'teams' ||
+    t === 'team_name'
+  );
+}
+
+function parseCsv(text) {
+  const clean = (text || '').replace(/^\uFEFF/, '');
+  const lines = clean.split(/\r?\n/);
+  const rows = [];
+  let checkedHeader = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    const row = splitUrlTeam(line);
+    if (!checkedHeader) {
+      checkedHeader = true;
+      if (isHeaderRow(row)) continue;
+    }
+    if (!row.page_url) continue;
+    rows.push(row);
+  }
+  return rows;
+}
+
+/* ─── Targets table (editable preview) ────────────────────────────────── */
+
+function makeTargetRow(url, team) {
+  const tr = document.createElement('tr');
+
+  const tdIndex = document.createElement('td');
+  tdIndex.className = 'row-index';
+
+  const tdUrl = document.createElement('td');
+  const urlInput = document.createElement('input');
+  urlInput.type = 'text';
+  urlInput.className = 't-url';
+  urlInput.placeholder = 'https://…';
+  urlInput.value = url || '';
+  tdUrl.appendChild(urlInput);
+
+  const tdTeam = document.createElement('td');
+  const teamInput = document.createElement('input');
+  teamInput.type = 'text';
+  teamInput.className = 't-team';
+  teamInput.placeholder = 'Team name';
+  teamInput.value = team || '';
+  tdTeam.appendChild(teamInput);
+
+  const tdRemove = document.createElement('td');
+  tdRemove.className = 'row-remove';
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 't-del';
+  del.title = 'Remove row';
+  del.textContent = '✕';
+  del.addEventListener('click', () => {
+    tr.remove();
+    if (!targetsBody.querySelector('.t-url')) renderTargetsTable([]);
+    renumberTargetRows();
+    syncTargetsFromTable();
+  });
+  tdRemove.appendChild(del);
+
+  tr.appendChild(tdIndex);
+  tr.appendChild(tdUrl);
+  tr.appendChild(tdTeam);
+  tr.appendChild(tdRemove);
+  return tr;
+}
+
+function renumberTargetRows() {
+  const rows = targetsBody.querySelectorAll('tr');
+  let i = 0;
+  rows.forEach((tr) => {
+    const idxCell = tr.querySelector('.row-index');
+    if (idxCell) idxCell.textContent = String(++i);
+  });
+}
+
+function renderTargetsTable(rows) {
+  targetsBody.innerHTML = '';
+  const list = rows || [];
+  if (!list.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 4;
+    td.className = 'targets-empty';
+    td.textContent = 'No pages yet — load a CSV, or use “Add row”.';
+    tr.appendChild(td);
+    targetsBody.appendChild(tr);
+    return;
+  }
+  list.forEach((r) => targetsBody.appendChild(makeTargetRow(r.page_url, r.page_teams)));
+  renumberTargetRows();
+}
+
+function readTargetsTable() {
+  const out = [];
+  targetsBody.querySelectorAll('tr').forEach((tr) => {
+    const url = (tr.querySelector('.t-url')?.value || '').trim();
+    const team = (tr.querySelector('.t-team')?.value || '').trim();
+    tr.classList.toggle('row-invalid', !!url && !/^https?:\/\//i.test(url));
+    if (!url) return;
+    out.push({ page_url: url, page_teams: team });
+  });
+  return out;
+}
+
+/** Recompute `pages` + counts + toolbar from whatever is currently in the table. */
+function syncTargetsFromTable() {
+  pages = readTargetsTable();
+  const n = pages.length;
+  rowSummaryEl.textContent = n ? `${n} page${n === 1 ? '' : 's'}` : '0 pages';
+  refreshToolbar();
+}
+
+function addTargetRow(url, team) {
+  const emptyRow = targetsBody.querySelector('.targets-empty');
+  if (emptyRow && emptyRow.parentElement) emptyRow.parentElement.remove();
+  targetsBody.appendChild(makeTargetRow(url, team));
+  renumberTargetRows();
+  syncTargetsFromTable();
+}
+
+/* ─── Guardrails / run options ────────────────────────────────────────── */
 
 function parseAllowedOriginInput() {
   const raw = (allowedOriginInput.value || '').trim();
@@ -184,6 +327,22 @@ function parseAllowedOriginInput() {
     return `${u.protocol}//${u.host}`;
   } catch {
     return 'https://arts.ucalgary.ca';
+  }
+}
+
+/** Point the "Allowed site" guardrail at whatever tab the user selected. */
+async function syncAllowedOriginFromTab() {
+  const tid = getSelectedTabId();
+  if (!tid) return;
+  try {
+    const tab = await chrome.tabs.get(tid);
+    const u = new URL(tab.url);
+    if (u.protocol === 'https:') {
+      allowedOriginInput.value = `${u.protocol}//${u.host}`;
+      await saveRunOptionsToStorage();
+    }
+  } catch {
+    /* ignore */
   }
 }
 
@@ -198,14 +357,8 @@ function buildGuardrailPayload() {
     anomalyAutoPauseEnabled: !!anomalyAutoPauseEnabled.checked,
     anomalyMinSample: Math.max(0, parseInt(anomalyMinSample.value, 10) || 0),
     anomalyErrorRatePct: Math.max(0, parseInt(anomalyErrorRatePct.value, 10) || 0),
-    anomalyConsecutiveTeamNotFound: Math.max(
-      0,
-      parseInt(anomalyConsecutiveTeamNotFound.value, 10) || 0
-    ),
-    anomalyReceiverErrorsInWindow: Math.max(
-      0,
-      parseInt(anomalyReceiverErrorsInWindow.value, 10) || 0
-    ),
+    anomalyConsecutiveTeamNotFound: Math.max(0, parseInt(anomalyConsecutiveTeamNotFound.value, 10) || 0),
+    anomalyReceiverErrorsInWindow: Math.max(0, parseInt(anomalyReceiverErrorsInWindow.value, 10) || 0),
     anomalyWindowSize: Math.max(1, parseInt(anomalyWindowSize.value, 10) || 1)
   };
 }
@@ -214,7 +367,7 @@ async function saveRunOptionsToStorage() {
   const g = buildGuardrailPayload();
   await chrome.storage.local.set({
     renderWaitMs: Math.max(0, parseInt(renderWaitMsInput.value, 10) || 0),
-    teamSeparator: teamSeparatorSelect.value === ',' ? ',' : '|',
+    assignPageTeam: !!assignPageTeamCheckbox.checked,
     guardrailAllowedOrigin: g.allowedOrigin,
     guardrailPathPrefix: g.pathPrefix,
     guardrailMaxPages: g.maxPages,
@@ -233,7 +386,7 @@ async function saveRunOptionsToStorage() {
 async function loadRunOptionsFromStorage() {
   const data = await chrome.storage.local.get([
     'renderWaitMs',
-    'teamSeparator',
+    'assignPageTeam',
     'guardrailAllowedOrigin',
     'guardrailPathPrefix',
     'guardrailMaxPages',
@@ -248,7 +401,7 @@ async function loadRunOptionsFromStorage() {
     'anomalyWindowSize'
   ]);
   if (typeof data.renderWaitMs === 'number') renderWaitMsInput.value = String(data.renderWaitMs);
-  if (data.teamSeparator === ',') teamSeparatorSelect.value = ',';
+  if (typeof data.assignPageTeam === 'boolean') assignPageTeamCheckbox.checked = data.assignPageTeam;
   if (typeof data.guardrailAllowedOrigin === 'string' && data.guardrailAllowedOrigin) {
     allowedOriginInput.value = data.guardrailAllowedOrigin;
   } else {
@@ -283,22 +436,7 @@ async function loadRunOptionsFromStorage() {
   }
 }
 
-async function loadRulesEditor() {
-  try {
-    const stored = await chrome.storage.local.get('rules');
-    if (stored.rules) {
-      rulesText.value = JSON.stringify(stored.rules, null, 2);
-      rulesStatus.textContent = 'Loaded rules from storage.';
-    } else {
-      const res = await fetch(chrome.runtime.getURL('rules_default.json'));
-      const json = await res.json();
-      rulesText.value = JSON.stringify(json, null, 2);
-      rulesStatus.textContent = 'Loaded default rules (not saved yet).';
-    }
-  } catch (e) {
-    rulesStatus.textContent = `Error loading rules: ${String(e)}`;
-  }
-}
+/* ─── CSV file load ───────────────────────────────────────────────────── */
 
 csvFileInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
@@ -306,19 +444,17 @@ csvFileInput.addEventListener('change', async (e) => {
   inputFileName = file.name;
   try {
     const text = await file.text();
-    const sep = teamSeparatorSelect.value === ',' ? ',' : '|';
-    pages = parseCsv(text, sep);
+    const parsed = parseCsv(text);
+    fileSummaryEl.textContent = inputFileName;
+    renderTargetsTable(parsed);
+    syncTargetsFromTable();
     if (!pages.length) {
-      fileSummaryEl.textContent = inputFileName;
-      rowSummaryEl.textContent = '0 pages';
-      testRunBtn.disabled = true;
-      fullRunBtn.disabled = true;
+      targetsStatus.textContent = 'No usable rows found. Each row needs a URL, a comma, then a team.';
       return;
     }
-    fileSummaryEl.textContent = inputFileName;
-    rowSummaryEl.textContent = `${pages.length} pages`;
     await pushPagesToBackground();
     setRunningState(false);
+    targetsStatus.textContent = `Loaded ${pages.length} page(s). Edit if needed, then Save targets or Run.`;
     appendActivityLine({
       level: 'info',
       message: `Loaded CSV: ${pages.length} pages`,
@@ -342,7 +478,7 @@ async function pushPagesToBackground() {
     inputFileName,
     targetTabId: getSelectedTabId(),
     renderWaitMs: Math.max(0, parseInt(renderWaitMsInput.value, 10) || 0),
-    teamSeparator: teamSeparatorSelect.value === ',' ? ',' : '|',
+    assignPageTeam: !!assignPageTeamCheckbox.checked,
     ...g
   });
 }
@@ -355,7 +491,7 @@ function buildStartRunMessage(mode, limit) {
     limit: mode === 'test' ? limit || 1 : undefined,
     targetTabId: getSelectedTabId(),
     renderWaitMs: Math.max(0, parseInt(renderWaitMsInput.value, 10) || 0),
-    teamSeparator: teamSeparatorSelect.value === ',' ? ',' : '|',
+    assignPageTeam: !!assignPageTeamCheckbox.checked,
     ...g
   };
 }
@@ -363,7 +499,6 @@ function buildStartRunMessage(mode, limit) {
 function refreshToolbar() {
   testRunBtn.disabled = isRunning || !pages.length;
   fullRunBtn.disabled = isRunning || !pages.length;
-  allBlocksBtn.disabled = isRunning;
   stopRunBtn.disabled = !isRunning;
   runBadge.textContent = isRunning ? 'Running' : 'Ready';
   runBadge.classList.toggle('running', isRunning);
@@ -383,8 +518,129 @@ function closeAutoPauseModal() {
   autoPauseModal.classList.remove('open');
 }
 
+/* ─── run analytics ───────────────────────────────────────────────────── */
+
+function isEntryOk(e) {
+  return e.status === 'success' || e.status === 'already_set';
+}
+
+function entryType(e) {
+  if (e.status === 'skipped_invalid_url') return 'skip';
+  if (e.block_label === '(page team)') return 'page';
+  return 'block';
+}
+
+function resetAnalytics() {
+  runEntries = [];
+  scannedPageUrls = new Set();
+  recomputeAnalytics();
+}
+
+function recomputeAnalytics() {
+  const blocks = runEntries.filter((e) => entryType(e) === 'block');
+  const failures = runEntries.filter((e) => !isEntryOk(e));
+
+  statPages.textContent = String(scannedPageUrls.size);
+  statBlocks.textContent = String(blocks.length);
+  statOk.textContent = String(runEntries.filter(isEntryOk).length);
+  statFail.textContent = String(failures.length);
+
+  failuresHeading.textContent = failures.length
+    ? `Needs attention (${failures.length})`
+    : 'Needs attention';
+  copyFailuresBtn.disabled = failures.length === 0;
+  renderFailures(failures);
+}
+
+function failureChip(type) {
+  if (type === 'skip') return { cls: 'type-skip', text: 'Skipped' };
+  if (type === 'page') return { cls: 'type-page', text: 'Page team' };
+  return { cls: 'type-block', text: 'Block' };
+}
+
+function makeLink(href, text) {
+  const a = document.createElement('a');
+  a.href = href;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  a.textContent = text;
+  return a;
+}
+
+function makeFailureRow(e) {
+  const type = entryType(e);
+  const chipInfo = failureChip(type);
+
+  const row = document.createElement('div');
+  row.className = 'failure';
+
+  const chip = document.createElement('span');
+  chip.className = `failure-chip ${chipInfo.cls}`;
+  chip.textContent = chipInfo.text;
+
+  const main = document.createElement('div');
+  main.className = 'failure-main';
+
+  const title = document.createElement('div');
+  title.className = 'failure-title';
+  const labelText =
+    type === 'skip'
+      ? 'Page skipped (outside allowed site)'
+      : type === 'page'
+        ? 'Page team not set'
+        : `Block: ${e.block_label || 'unknown'}`;
+  title.textContent = `${labelText} — `;
+  const statusSpan = document.createElement('span');
+  statusSpan.className = 'failure-status';
+  statusSpan.textContent = e.status;
+  title.appendChild(statusSpan);
+  main.appendChild(title);
+
+  const links = document.createElement('div');
+  links.className = 'failure-links';
+  if (e.page_url) links.appendChild(makeLink(e.page_url, 'Open page'));
+  if (e.block_edit_url && e.block_edit_url !== e.page_url) {
+    links.appendChild(makeLink(e.block_edit_url, type === 'page' ? 'Open edit form' : 'Open block'));
+  }
+  if (links.childNodes.length) main.appendChild(links);
+
+  if (e.notes) {
+    const notes = document.createElement('div');
+    notes.className = 'failure-notes';
+    notes.textContent = e.notes;
+    main.appendChild(notes);
+  }
+
+  row.appendChild(chip);
+  row.appendChild(main);
+  return row;
+}
+
+function renderFailures(failures) {
+  failuresList.innerHTML = '';
+  if (!failures.length) {
+    const empty = document.createElement('div');
+    empty.className = 'failures-empty';
+    empty.textContent = runEntries.length ? 'No failures so far. ✅' : 'Nothing to show yet — failures and skipped pages will appear here during a run.';
+    failuresList.appendChild(empty);
+    return;
+  }
+  for (let i = failures.length - 1; i >= 0; i--) {
+    failuresList.appendChild(makeFailureRow(failures[i]));
+  }
+}
+
+/* ─── output.csv (live file + on-demand download) ─────────────────────── */
+
 function formatOutputCsvRow(row) {
-  const keys = ['page_title', 'page_url', 'page_team', 'blocks_no_team_before', 'blocks_no_team_after'];
+  const keys = [
+    'page_title',
+    'page_url',
+    'page_team',
+    'blocks_no_team_before',
+    'blocks_no_team_after',
+    'page_team_status'
+  ];
   return keys
     .map((k) => {
       const raw = row && row[k] != null ? row[k] : '';
@@ -395,7 +651,8 @@ function formatOutputCsvRow(row) {
 
 async function writeOutputCsvToFile() {
   if (!outputFileHandle) return;
-  const header = 'page_title,page_url,page_team,blocks_no_team_before,blocks_no_team_after';
+  const header =
+    'page_title,page_url,page_team,blocks_no_team_before,blocks_no_team_after,page_team_status';
   const lines = [header, ...outputCsvRows.map(formatOutputCsvRow)];
   try {
     const writable = await outputFileHandle.createWritable();
@@ -433,11 +690,10 @@ setOutputFileBtn.addEventListener('click', async () => {
   }
 });
 
-teamSeparatorSelect.addEventListener('change', async () => {
-  await saveRunOptionsToStorage();
-});
+/* ─── option change listeners ─────────────────────────────────────────── */
 
 renderWaitMsInput.addEventListener('change', () => saveRunOptionsToStorage());
+assignPageTeamCheckbox.addEventListener('change', () => saveRunOptionsToStorage());
 
 [
   allowedOriginInput,
@@ -454,8 +710,89 @@ renderWaitMsInput.addEventListener('change', () => saveRunOptionsToStorage());
   anomalyWindowSize
 ].forEach((el) => el.addEventListener('change', () => saveRunOptionsToStorage()));
 
+tabSelect.addEventListener('change', () => {
+  syncAllowedOriginFromTab();
+});
+
+/* ─── targets table events ────────────────────────────────────────────── */
+
+targetsBody.addEventListener('input', (e) => {
+  if (e.target && (e.target.classList.contains('t-url') || e.target.classList.contains('t-team'))) {
+    syncTargetsFromTable();
+  }
+});
+
+addTargetBtn.addEventListener('click', () => {
+  addTargetRow('', '');
+  targetsStatus.textContent = 'Added an empty row.';
+});
+
+saveTargetsBtn.addEventListener('click', async () => {
+  syncTargetsFromTable();
+  renderTargetsTable(pages); // normalise (drops blank rows, re-numbers)
+  syncTargetsFromTable();
+  await pushPagesToBackground();
+  targetsStatus.textContent = pages.length
+    ? `Saved ${pages.length} target(s).`
+    : 'No targets to save — add at least one URL.';
+  appendActivityLine({
+    level: 'success',
+    message: `Targets saved: ${pages.length} page(s)`,
+    timestamp: new Date().toISOString()
+  });
+});
+
+downloadCleanCsvBtn.addEventListener('click', () => {
+  const rows = readTargetsTable();
+  if (!rows.length) {
+    targetsStatus.textContent = 'Nothing to download — add at least one URL.';
+    return;
+  }
+  const header = 'page_url,team_name';
+  const lines = [header];
+  for (const r of rows) {
+    const url = `"${String(r.page_url).replace(/"/g, '""')}"`;
+    const team = `"${String(r.page_teams).replace(/"/g, '""')}"`;
+    lines.push(`${url},${team}`);
+  }
+  const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'targets_cleaned.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  targetsStatus.textContent = `Downloaded ${rows.length} cleaned row(s).`;
+});
+
+/* ─── run controls ────────────────────────────────────────────────────── */
+
+addCurrentTabBtn.addEventListener('click', async () => {
+  const tid = getSelectedTabId();
+  if (!tid) {
+    targetsStatus.textContent = 'Pick a site tab first (step 2).';
+    return;
+  }
+  try {
+    const tab = await chrome.tabs.get(tid);
+    if (!tab.url) {
+      targetsStatus.textContent = 'That tab has no URL.';
+      return;
+    }
+    addTargetRow(tab.url, '');
+    targetsStatus.textContent = 'Added the selected tab. Fill in its team, then Save targets.';
+  } catch (e) {
+    targetsStatus.textContent = `Could not read the tab: ${String(e)}`;
+  }
+});
+
 testRunBtn.addEventListener('click', async () => {
+  syncTargetsFromTable();
+  if (!pages.length) return;
   outputCsvRows = [];
+  resetAnalytics();
   await pushPagesToBackground();
   chrome.runtime.sendMessage(buildStartRunMessage('test', 1));
   setRunningState(true);
@@ -463,7 +800,10 @@ testRunBtn.addEventListener('click', async () => {
 });
 
 fullRunBtn.addEventListener('click', async () => {
+  syncTargetsFromTable();
+  if (!pages.length) return;
   outputCsvRows = [];
+  resetAnalytics();
   await pushPagesToBackground();
   chrome.runtime.sendMessage(buildStartRunMessage('full'));
   setRunningState(true);
@@ -482,97 +822,33 @@ stopRunBtn.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'STOP_RUN' });
 });
 
-useCurrentPageBtn.addEventListener('click', async () => {
-  const tid = getSelectedTabId();
-  if (!tid) {
-    appendActivityLine({
-      level: 'warn',
-      message: 'Select a target tab first',
-      timestamp: new Date().toISOString()
-    });
-    return;
-  }
-  const tab = await chrome.tabs.get(tid);
-  if (!tab.url) {
-    appendActivityLine({ level: 'error', message: 'Tab has no URL', timestamp: new Date().toISOString() });
-    return;
-  }
-  pages = [{ page_url: tab.url, page_teams: '' }];
-  inputFileName = '(selected tab)';
-  fileSummaryEl.textContent = inputFileName;
-  rowSummaryEl.textContent = '1 page';
-  await pushPagesToBackground();
-  setRunningState(false);
-  appendActivityLine({
-    level: 'info',
-    message: `Single-page run URL: ${tab.url}`,
-    timestamp: new Date().toISOString()
+copyFailuresBtn.addEventListener('click', async () => {
+  const failures = runEntries.filter((e) => !isEntryOk(e));
+  if (!failures.length) return;
+  const lines = failures.map((e) => {
+    const kind = entryType(e) === 'page' ? 'Page team' : entryType(e) === 'skip' ? 'Skipped' : e.block_label || 'Block';
+    const parts = [e.status, kind, e.page_url];
+    if (e.block_edit_url && e.block_edit_url !== e.page_url) parts.push(e.block_edit_url);
+    if (e.notes) parts.push(`(${e.notes})`);
+    return parts.filter(Boolean).join(' | ');
   });
-});
-
-allBlocksBtn.addEventListener('click', async () => {
-  const tid = getSelectedTabId();
-  if (!tid) {
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
     appendActivityLine({
-      level: 'warn',
-      message: 'Select a target tab first',
+      level: 'success',
+      message: `Copied ${lines.length} failed item(s) to clipboard`,
       timestamp: new Date().toISOString()
     });
-    return;
-  }
-  const tab = await chrome.tabs.get(tid);
-  if (!isSupportedTabUrl(tab.url)) {
+  } catch (e) {
     appendActivityLine({
       level: 'error',
-      message: 'Selected tab must be an https ucalgary.ca page',
+      message: `Copy failed: ${String(e)}`,
       timestamp: new Date().toISOString()
     });
-    return;
   }
-  pages = [{ page_url: tab.url, page_teams: '' }];
-  inputFileName = '(selected tab)';
-  fileSummaryEl.textContent = inputFileName;
-  rowSummaryEl.textContent = '1 page – all blocks';
-  outputCsvRows = [];
-  await pushPagesToBackground();
-  chrome.runtime.sendMessage(buildStartRunMessage('full'));
-  setRunningState(true);
-  writeOutputCsvToFile();
 });
 
 refreshTabsBtn.addEventListener('click', refreshTabList);
-
-saveRulesBtn.addEventListener('click', async () => {
-  try {
-    const parsed = JSON.parse(rulesText.value);
-    await chrome.storage.local.set({ rules: parsed });
-    rulesStatus.textContent = 'Rules saved.';
-    appendActivityLine({
-      level: 'success',
-      message: 'Rules saved to storage',
-      timestamp: new Date().toISOString()
-    });
-  } catch (e) {
-    rulesStatus.textContent = `Invalid JSON: ${String(e)}`;
-  }
-});
-
-resetRulesBtn.addEventListener('click', async () => {
-  try {
-    const res = await fetch(chrome.runtime.getURL('rules_default.json'));
-    const json = await res.json();
-    await chrome.storage.local.set({ rules: json });
-    rulesText.value = JSON.stringify(json, null, 2);
-    rulesStatus.textContent = 'Reset to default rules.';
-    appendActivityLine({
-      level: 'info',
-      message: 'Rules reset to defaults',
-      timestamp: new Date().toISOString()
-    });
-  } catch (e) {
-    rulesStatus.textContent = `Error: ${String(e)}`;
-  }
-});
 
 copyActivityBtn.addEventListener('click', async () => {
   const text = [...activityLogEl.querySelectorAll('.log-line')]
@@ -616,9 +892,15 @@ autoPauseResumeBtn.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'RESUME_AUTO_PAUSE_PHASE2' });
 });
 
+/* ─── messages from background ────────────────────────────────────────── */
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'LOG_ENTRY' && msg.entry) {
     appendActivityLine(msg.entry);
+  }
+  if (msg.type === 'RUN_ENTRY' && msg.entry) {
+    runEntries.push(msg.entry);
+    recomputeAnalytics();
   }
   if (msg.type === 'AUTO_PAUSED_PHASE2') {
     setRunningState(false);
@@ -655,6 +937,8 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
   if (msg.type === 'PAGE_SUMMARY_UPDATE' && msg.summary) {
     outputCsvRows.push(msg.summary);
+    if (msg.summary.page_url) scannedPageUrls.add(msg.summary.page_url);
+    recomputeAnalytics();
     writeOutputCsvToFile();
   }
   if (msg.type === 'RUN_COMPLETE') {
@@ -662,8 +946,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     setRunningState(false);
     downloadLogBtn.disabled = total === 0;
     downloadOutputBtn.disabled = pageCount === 0;
-    const pagesPart =
-      typeof pageCount === 'number' ? `${pageCount} page(s), ` : '';
+    const pagesPart = typeof pageCount === 'number' ? `${pageCount} page(s), ` : '';
     appendActivityLine({
       level: 'success',
       message: `Run complete. ${pagesPart}${total} row(s): ok ${successCount}, other ${errorCount}`,
@@ -672,11 +955,14 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
+/* ─── init ────────────────────────────────────────────────────────────── */
+
 (async function init() {
   await loadActivityLogFromSession();
   await loadRunOptionsFromStorage();
   await refreshTabList();
-  await loadRulesEditor();
+  renderTargetsTable([]);
+  syncTargetsFromTable();
   appendActivityLine({
     level: 'info',
     message: 'Dashboard ready',

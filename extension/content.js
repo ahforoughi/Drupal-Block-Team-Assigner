@@ -271,6 +271,105 @@
     return null;
   }
 
+  /**
+   * URL of this node's edit form, read from the local-tasks ("View / Edit /
+   * Delete / Layout") tabs. Prefer the canonical /node/<id>/edit route; fall
+   * back to any "Edit" tab that ends in /edit.
+   */
+  function getPageEditUrl(doc) {
+    const origin = window.location.origin;
+    const toAbsolute = (h) => (h.indexOf('http') === 0 ? h : `${origin}${h}`);
+
+    const anchors = new Set();
+    const scopeSelectors = [
+      'nav.tabs a',
+      '.tabs a',
+      'ul.tabs a',
+      '.local-tasks a',
+      '.block-local-tasks-block a',
+      '[data-drupal-link-system-path]'
+    ];
+    for (const sel of scopeSelectors) {
+      try {
+        doc.querySelectorAll(sel).forEach((a) => {
+          if (a && a.tagName === 'A') anchors.add(a);
+        });
+      } catch (e) {}
+    }
+    try {
+      doc.querySelectorAll('a').forEach((a) => {
+        const t = (a.textContent || '').replace(/\s+/g, ' ').trim();
+        if (/^edit$/i.test(t)) anchors.add(a);
+      });
+    } catch (e) {}
+
+    let fallback = '';
+    for (const a of anchors) {
+      const href = a.getAttribute('href') || '';
+      if (!href) continue;
+      const h = href.split('#')[0].split('?')[0];
+      if (/\/node\/\d+\/edit$/i.test(h)) return toAbsolute(h);
+      const text = (a.textContent || '').replace(/\s+/g, ' ').trim();
+      if (
+        !fallback &&
+        /^edit$/i.test(text) &&
+        /\/edit$/i.test(h) &&
+        !/content\/block|layout_builder|\/delete$/i.test(h)
+      ) {
+        fallback = toAbsolute(h);
+      }
+    }
+    return fallback;
+  }
+
+  /**
+   * Team checkboxes on a node edit form. The Teams widget usually matches the
+   * block-form selectors, but themes/field machine names vary, so fall back to
+   * name/id/label heuristics and finally a fieldset whose heading is "Teams".
+   */
+  function getPageTeamCheckboxes(doc) {
+    const primary = getTeamCheckboxes(doc);
+    if (primary.length) return primary;
+
+    const fallbackSelectors = [
+      'input[name^="teams["][type="checkbox"]',
+      'input[name*="teams"][type="checkbox"]',
+      '[id*="teams" i] input[type="checkbox"]',
+      '[class*="teams" i] input[type="checkbox"]'
+    ];
+    for (const sel of fallbackSelectors) {
+      try {
+        const found = Array.from(doc.querySelectorAll(sel));
+        if (found.length) return found;
+      } catch (e) {}
+    }
+
+    try {
+      const groups = doc.querySelectorAll('details, fieldset');
+      for (const g of groups) {
+        const heading = g.querySelector('summary, legend');
+        const t = ((heading && heading.textContent) || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (t === 'teams' || t.startsWith('teams')) {
+          const found = Array.from(g.querySelectorAll('input[type="checkbox"]'));
+          if (found.length) return found;
+        }
+      }
+    } catch (e) {}
+
+    return [];
+  }
+
+  /** Open any collapsed <details> ancestors so the checkbox is interactable. */
+  function openContainingDetails(el) {
+    try {
+      let node = el;
+      while (node) {
+        if (node.tagName === 'DETAILS' && !node.open) node.open = true;
+        node = node.parentElement;
+      }
+    } catch (e) {}
+  }
+
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'ASSIGN_TEAM') {
       (async () => {
@@ -343,6 +442,62 @@
       return true;
     }
 
+    if (msg.type === 'ASSIGN_PAGE_TEAM') {
+      (async () => {
+        let responded = false;
+        function respond(r) {
+          if (responded) return;
+          responded = true;
+          try {
+            sendResponse(r);
+          } catch (e) {}
+        }
+        try {
+          const teamName = msg.teamName;
+          if (!teamName) {
+            respond({ status: 'error', notes: 'missing teamName' });
+            return;
+          }
+          const allCbs = getPageTeamCheckboxes(document);
+          if (!allCbs.length) {
+            respond({ status: 'error', notes: 'no team checkboxes on page edit form' });
+            return;
+          }
+          const targetCb = findCheckboxForTeamName(document, allCbs, teamName);
+          if (!targetCb) {
+            respond({
+              status: 'team_option_not_found',
+              notes: `checkbox for "${teamName}" not found`
+            });
+            return;
+          }
+          if (targetCb.checked) {
+            respond({ status: 'already_set', notes: 'page team already selected' });
+            return;
+          }
+          openContainingDetails(targetCb);
+          ensureCheckboxChecked(targetCb);
+          if (!targetCb.checked) {
+            respond({ status: 'error', notes: 'could not check page team checkbox' });
+            return;
+          }
+          await sleep(300);
+          const saveBtn = findSaveButton(document);
+          if (!saveBtn) {
+            respond({ status: 'error', notes: 'Save button not found on page edit form' });
+            return;
+          }
+          // Respond BEFORE clicking Save: saving the node navigates the tab away
+          // and would close the message port before a later response could send.
+          respond({ status: 'success', notes: '' });
+          saveBtn.click();
+        } catch (e) {
+          respond({ status: 'error', notes: String(e) });
+        }
+      })();
+      return true;
+    }
+
     if (msg.type === 'SCAN_BLOCKS') {
       try {
         const blocks = [];
@@ -369,9 +524,13 @@
                 : label;
           blocks.push({ label, editUrl, hasTeam: false });
         }
-        sendResponse({ blocks, pageTitle: document.title || '' });
+        sendResponse({
+          blocks,
+          pageTitle: document.title || '',
+          pageEditUrl: getPageEditUrl(document)
+        });
       } catch (e) {
-        sendResponse({ blocks: [], pageTitle: document.title || '' });
+        sendResponse({ blocks: [], pageTitle: document.title || '', pageEditUrl: '' });
       }
     }
   });

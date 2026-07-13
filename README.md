@@ -1,6 +1,6 @@
 # Drupal Block Team Assigner
 
-A Chrome extension that bulk-assigns Drupal teams to blocks that are missing one. Upload a CSV of page URLs, define URL-to-team rules, and the extension navigates each page, finds teamless blocks, assigns the correct team, and exports before/after reports.
+A Chrome extension that bulk-assigns Drupal teams to blocks that are missing one. Load a simple CSV — one page URL and its team per row — review the list in an editable table, and the extension navigates each page, assigns that team to its teamless blocks (and optionally to the page itself), and exports before/after reports.
 
 ## Install
 
@@ -11,7 +11,7 @@ A Chrome extension that bulk-assigns Drupal teams to blocks that are missing one
 
 ### Which sites it runs on
 
-Out of the box the extension works on **any `https://*.ucalgary.ca` site** (arts, outdoor-centre, other faculty Drupal sites — all covered by one build). To keep each batch scoped to a single site, set that site in the dashboard **Allowed origin** guardrail: only CSV `page_url`s on that origin are processed; everything else is logged as `skipped_invalid_url`.
+Out of the box the extension works on **any `https://*.ucalgary.ca` site** (arts, outdoor-centre, other faculty Drupal sites — all covered by one build). Each batch is scoped to a single site by the **Allowed site** guardrail, which is filled in automatically from the tab you pick (override it under **Advanced settings**). Pages on other sites are logged as `skipped_invalid_url`.
 
 To run on a domain outside `ucalgary.ca`, edit `extension/manifest.json` — add your origin (e.g. `https://your-site.example.com/*`) to both `host_permissions` and `content_scripts.matches` — then reload the extension. The dashboard Target-tab list also filters to `*.ucalgary.ca`; widen `TAB_QUERY_URL` / `isSupportedTabUrl` in `extension/dashboard.js` to include the new domain.
 
@@ -22,15 +22,19 @@ For each page in your CSV:
   1. Navigate the target tab to the page URL
   2. Scan for blocks without a team
   3. For each block: open the edit form, check the matching team checkbox, save
-  4. Re-scan and record before/after counts
-  5. Move to the next page
+  4. (Optional) Open the page's own Edit form and set the same team on the page
+  5. Re-scan and record before/after counts
+  6. Move to the next page
 ```
 
-**Team resolution** (in order):
+**Also set the page's team** (dashboard toggle, on by default): after a page's blocks
+are assigned, the extension opens the node's **Edit** tab, finds the **Teams** field,
+and checks the same team it used for that page's blocks, then saves. This keeps a page
+and its blocks on the same team. The per-page result is recorded in the
+`page_team_status` column of `output.csv`. Turn the toggle off to leave pages untouched
+and only assign block teams.
 
-1. If the CSV row has `page_teams`, the first team in that field is used.
-2. Otherwise, rules in the dashboard (or `rules_default.json`) are checked — each `pattern` is matched as a substring of the URL. First match wins.
-3. If nothing matches, the block is logged as `no_rule_match`.
+**Team resolution:** each page gets the **one team** listed next to it in your CSV (or in the editable **Targets** table). There are no URL rules — what you see in the table is what gets assigned. A page with a blank team is logged as `no_rule_match` and skipped.
 
 `team_name` values must match the Drupal checkbox label exactly (e.g. `ARTS - 1`, not "Faculty of Arts").
 
@@ -39,43 +43,36 @@ The extension processes one page at a time. The service worker uses `chrome.alar
 ## Usage
 
 1. Click the extension icon to open the **Dashboard** tab.
-2. In another tab, open your Drupal site.
-3. In the dashboard, select that tab from **Target tab** (click **Refresh tabs** if needed).
-4. Upload a CSV or click **Use current page** for a single-page run.
-5. Run **Test 1 block** (first block per page only) or **Full batch** (all blocks on every page).
-6. When done, download **run_log.csv** (per-block detail) and **output.csv** (per-page summary).
+2. In another tab, open your Drupal site and log in.
+3. **Load your list** — choose a CSV (or click *add the selected tab as a row*).
+4. **Pick the site tab** — select that Drupal tab (click **Refresh** if needed). The *Allowed site* guardrail is filled in from it automatically.
+5. **Review the Targets** table on the right. Edit any URL or team inline, click **Save targets** to keep changes (or **Download cleaned CSV**).
+6. **Run** — **Test (1 page)** does the first page/first block as a safe check; **Run all pages** processes everything.
+7. Watch the **Results** panel update live — pages scanned, blocks processed, succeeded, and failed. Anything that didn't succeed appears under **Needs attention** with **Open page** / **Open block** links and the reason; use **Copy failed links** to grab them all.
+8. When done, **Download results** (per-page summary) and **Download detailed log** (per-block detail).
 
 ### Input CSV
 
+One row per page: the page URL, a comma, then the team name. **One team per URL.** A header row is optional, and spaces/quotes around values are cleaned up automatically on load — so all of these work:
+
 ```csv
-page_url,page_teams
-https://arts.ucalgary.ca/english,ENGL - 13
-https://arts.ucalgary.ca/history,
+page_url,team_name
+https://arts.ucalgary.ca/english, ENGL - 13
+"https://arts.ucalgary.ca/history",HIST - 29
+https://arts.ucalgary.ca/drama
 ```
 
 | Column | Required | Description |
 |--------|----------|-------------|
-| `page_url` | Yes | Full URL of the Drupal page |
-| `page_teams` | No | Team name(s), separated by `\|` or `,`. First value is used. Blank = use rules. |
+| Page URL | Yes | Full URL of the Drupal page (first field) |
+| Team name | No | The single team for that page (everything after the first comma). Blank = page is skipped. |
 
-### Rules
-
-```json
-{
-  "default_team": "",
-  "rules": [
-    { "pattern": "/english", "team_name": "ENGL - 13" },
-    { "pattern": "/history", "team_name": "HIST - 29" }
-  ]
-}
-```
-
-Edit rules in the dashboard or in `extension/rules_default.json`.
+After loading, the CSV appears in the **Targets** table where you can fix any row before running.
 
 ### Output
 
-- **run_log.csv** — one row per block: URL, block label, team, status (`success`, `already_set`, `no_rule_match`, `team_option_not_found`, `error`), notes, timestamp.
-- **output.csv** — one row per page: title, URL, resolved team, blocks without team before/after.
+- **run_log.csv** — one row per block: URL, block label, team, status (`success`, `already_set`, `no_rule_match`, `team_option_not_found`, `error`), notes, timestamp. Page-team assignments appear as rows with the block label `(page team)`.
+- **output.csv** — one row per page: title, URL, resolved team, blocks without team before/after, and `page_team_status` (the result of setting the page's own team: `success`, `already_set`, `team_option_not_found`, `no_edit_url`, `no_rule_match`, `error`, or blank when the toggle is off).
 
 ## Prepare CSV from a Drupal export
 

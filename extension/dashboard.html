@@ -336,147 +336,429 @@
       margin-top: 3px;
       width: auto;
     }
+
+    details.advanced {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    details.advanced > summary {
+      cursor: pointer;
+      list-style: revert;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      font-weight: 600;
+      user-select: none;
+    }
+
+    details.advanced[open] > summary {
+      margin-bottom: 6px;
+    }
+
+    .targets-wrap {
+      max-height: 520px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.6);
+    }
+
+    table.targets {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    table.targets th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      text-align: left;
+      background: var(--card);
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.66rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 8px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    table.targets td {
+      padding: 4px 6px;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+      vertical-align: middle;
+    }
+
+    table.targets input[type="text"] {
+      padding: 6px 8px;
+      font-size: 0.78rem;
+    }
+
+    td.row-index {
+      color: var(--muted);
+      font-size: 0.7rem;
+      text-align: right;
+      width: 26px;
+      padding-right: 4px;
+    }
+
+    td.row-remove {
+      width: 30px;
+      text-align: center;
+    }
+
+    .t-del {
+      background: none;
+      border: none;
+      color: #f87373;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 2px 6px;
+      cursor: pointer;
+    }
+
+    .targets-empty {
+      padding: 22px 12px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    tr.row-invalid input.t-url {
+      border-color: rgba(249, 115, 115, 0.7);
+    }
+
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    @media (max-width: 640px) {
+      .stat-row {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .stat {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: rgba(15, 23, 42, 0.6);
+    }
+
+    .stat-num {
+      font-size: 1.5rem;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .stat-label {
+      font-size: 0.66rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .stat.ok .stat-num {
+      color: #4ade80;
+    }
+
+    .stat.fail .stat-num {
+      color: #f87171;
+    }
+
+    .failures {
+      max-height: 320px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.92);
+    }
+
+    .failures-empty {
+      padding: 20px 14px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .failure {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+    }
+
+    .failure:last-child {
+      border-bottom: none;
+    }
+
+    .failure-chip {
+      flex: 0 0 auto;
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 700;
+      padding: 3px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      white-space: nowrap;
+      margin-top: 1px;
+    }
+
+    .failure-chip.type-block {
+      color: #fca5a5;
+      border-color: rgba(249, 115, 115, 0.5);
+    }
+
+    .failure-chip.type-page {
+      color: #93c5fd;
+      border-color: rgba(96, 165, 250, 0.5);
+    }
+
+    .failure-chip.type-skip {
+      color: #fcd34d;
+      border-color: rgba(250, 204, 21, 0.5);
+    }
+
+    .failure-main {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .failure-title {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text);
+      word-break: break-word;
+    }
+
+    .failure-status {
+      font-weight: 600;
+      color: #f87171;
+    }
+
+    .failure-links {
+      margin-top: 3px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 0.75rem;
+    }
+
+    .failure-links a {
+      color: #60a5fa;
+      text-decoration: underline;
+      word-break: break-all;
+    }
+
+    .failure-notes {
+      margin-top: 3px;
+      font-size: 0.72rem;
+      color: var(--muted);
+      word-break: break-word;
+    }
   </style>
 </head>
 <body>
   <div class="header-row">
     <div>
       <h1>Drupal Block Team Assigner</h1>
-      <p class="subtitle">Dashboard — CSV, target tab, rules, and live activity.</p>
+      <p class="subtitle">Load your pages, pick the site tab, review the list, and run.</p>
     </div>
     <span class="badge" id="runBadge">Ready</span>
   </div>
 
   <div class="grid">
     <div class="card">
-      <h2>Input</h2>
-      <label for="csvFile">CSV file (pages)</label>
-      <input type="file" id="csvFile" accept=".csv" />
+      <h2>1 · Load your list</h2>
+      <label for="csvFile">CSV file</label>
+      <input type="file" id="csvFile" accept=".csv,.txt" />
       <div class="meta">
         <span id="fileSummary">No file loaded</span>
         <span id="rowSummary"></span>
       </div>
       <div class="hint">
+        One row per page: the <strong>page URL</strong>, a comma, then the <strong>team name</strong>.
+        Extra spaces are cleaned up for you. Example:<br />
+        <code>https://arts.ucalgary.ca/english, ENGL - 13</code>
+      </div>
+      <div class="hint">
         Or
-        <button type="button" class="link-button" id="useCurrentPageBtn">use selected tab URL</button>
-        as a single-page run (uses Target tab below).
+        <button type="button" class="link-button" id="addCurrentTabBtn">add the selected tab as a row</button>.
       </div>
 
       <div class="section-divider">
-        <label for="renderWaitMs">Render wait (ms)</label>
-        <input type="number" id="renderWaitMs" min="0" step="100" value="1200" />
-        <div class="hint">Higher value if the form hydrates after load.</div>
-      </div>
-
-      <div class="section-divider">
-        <label for="teamSeparator">Team separator</label>
-        <select id="teamSeparator">
-          <option value="|">Pipe (|)</option>
-          <option value=",">Comma (,)</option>
-        </select>
-      </div>
-
-      <div class="section-divider">
-        <h2>Guardrails</h2>
-        <label for="allowedOrigin">Allowed origin (https only)</label>
-        <input type="text" id="allowedOrigin" placeholder="https://arts.ucalgary.ca" />
-        <div class="hint">CSV <code>page_url</code> must match this origin. Optional path lock below.</div>
-        <label for="pathPrefix" style="margin-top:10px;">Optional path prefix</label>
-        <input type="text" id="pathPrefix" placeholder="e.g. /clare-intermediary/ (leave empty for any path)" />
-        <div class="row" style="margin-top:10px;">
-          <div class="grow">
-            <label for="maxPages">Max pages (0 = no limit)</label>
-            <input type="number" id="maxPages" min="0" step="1" value="0" />
-          </div>
-          <div class="grow">
-            <label for="maxAssignments">Max assignments (0 = no limit)</label>
-            <input type="number" id="maxAssignments" min="0" step="1" value="0" />
-          </div>
-        </div>
+        <h2>2 · Pick the site tab</h2>
+        <p class="hint" style="margin-top:0;">The open browser tab showing the Drupal site to update (you must be logged in).</p>
         <div class="row">
-          <div class="grow">
-            <label for="assignGapMs">Delay between assigns (ms)</label>
-            <input type="number" id="assignGapMs" min="0" step="50" value="800" />
-          </div>
-          <div class="grow">
-            <label for="postSaveWaitMs">Post-save wait (ms)</label>
-            <input type="number" id="postSaveWaitMs" min="0" step="100" value="1200" />
-          </div>
-        </div>
-        <div class="section-divider" style="margin-top:10px;">
-          <h2>Anomaly auto-pause</h2>
-          <div class="check-row">
-            <input type="checkbox" id="anomalyAutoPauseEnabled" checked />
-            <label for="anomalyAutoPauseEnabled" style="margin:0;">Auto-pause on risky error patterns.</label>
-          </div>
-          <div class="row">
-            <div class="grow">
-              <label for="anomalyMinSample">Min sample before error-rate check</label>
-              <input type="number" id="anomalyMinSample" min="0" step="1" value="10" />
-            </div>
-            <div class="grow">
-              <label for="anomalyErrorRatePct">Pause if error rate >= (%)</label>
-              <input type="number" id="anomalyErrorRatePct" min="0" step="1" value="15" />
-            </div>
-          </div>
-          <div class="row">
-            <div class="grow">
-              <label for="anomalyConsecutiveTeamNotFound">Consecutive team_option_not_found</label>
-              <input type="number" id="anomalyConsecutiveTeamNotFound" min="0" step="1" value="3" />
-            </div>
-            <div class="grow">
-              <label for="anomalyReceiverErrorsInWindow">Receiver errors in window</label>
-              <input type="number" id="anomalyReceiverErrorsInWindow" min="0" step="1" value="2" />
-            </div>
-          </div>
-          <label for="anomalyWindowSize">Window size (assignments)</label>
-          <input type="number" id="anomalyWindowSize" min="1" step="1" value="10" />
+          <select id="tabSelect" class="grow"></select>
+          <button type="button" class="secondary" id="refreshTabsBtn">Refresh</button>
         </div>
       </div>
 
       <div class="section-divider">
-        <h2>Run</h2>
-        <button type="button" class="secondary" id="allBlocksBtn" style="width:100%;margin-bottom:8px;">
-          All blocks on selected tab
-        </button>
-        <div class="button-grid">
-          <button type="button" id="testRunBtn" disabled>Test 1 block</button>
-          <button type="button" id="fullRunBtn" disabled>Full batch</button>
-        </div>
-        <div class="hint">
-          Test = first block on each page only. Full batch = every block on every page (use for a single long page with many blocks).
-        </div>
-        <div class="row" style="margin-top:10px;">
-          <button type="button" class="danger-outline secondary" id="stopRunBtn" disabled style="flex:1;">Stop</button>
-          <button type="button" class="secondary" id="downloadLogBtn" disabled style="flex:1;">Download run_log.csv</button>
-          <button type="button" class="secondary" id="downloadOutputBtn" disabled style="flex:1;">Download output.csv</button>
-        </div>
-        <div class="row" style="margin-top:8px;">
-          <button type="button" class="secondary" id="setOutputFileBtn" style="flex:0 0 auto;">Set output.csv location</button>
-          <span class="hint" id="outputFileStatus" style="flex:1;margin:0;align-self:center;">No file selected — output.csv updates live after each page</span>
+        <div class="check-row">
+          <input type="checkbox" id="assignPageTeam" checked />
+          <label for="assignPageTeam" style="margin:0;">
+            Also set each page's own team (opens the page's Edit form and sets the same team).
+          </label>
         </div>
       </div>
+
+      <div class="section-divider">
+        <h2>3 · Run</h2>
+        <button type="button" id="fullRunBtn" style="width:100%;margin-bottom:8px;" disabled>Run all pages</button>
+        <div class="button-grid">
+          <button type="button" class="secondary" id="testRunBtn" disabled>Test (1 page)</button>
+          <button type="button" class="danger-outline secondary" id="stopRunBtn" disabled>Stop</button>
+        </div>
+        <div class="hint">Test does the first page, first block only — a safe check before running everything.</div>
+        <div class="row" style="margin-top:10px;">
+          <button type="button" class="secondary" id="downloadOutputBtn" disabled style="flex:1;">Download results</button>
+          <button type="button" class="secondary" id="downloadLogBtn" disabled style="flex:1;">Download detailed log</button>
+        </div>
+      </div>
+
+      <details class="advanced">
+        <summary>Advanced settings</summary>
+        <div>
+          <label for="renderWaitMs">Render wait (ms)</label>
+          <input type="number" id="renderWaitMs" min="0" step="100" value="1200" />
+          <div class="hint">Increase if blocks aren't found (the form loads slowly).</div>
+
+          <div class="section-divider">
+            <label for="allowedOrigin">Allowed site (auto-filled from the tab)</label>
+            <input type="text" id="allowedOrigin" placeholder="https://arts.ucalgary.ca" />
+            <div class="hint">Only pages on this site are processed; others are skipped. Set from the tab you pick.</div>
+            <label for="pathPrefix" style="margin-top:10px;">Optional path lock</label>
+            <input type="text" id="pathPrefix" placeholder="e.g. /programs/ (leave empty for any path)" />
+          </div>
+
+          <div class="row" style="margin-top:10px;">
+            <div class="grow">
+              <label for="maxPages">Max pages (0 = no limit)</label>
+              <input type="number" id="maxPages" min="0" step="1" value="0" />
+            </div>
+            <div class="grow">
+              <label for="maxAssignments">Max assignments (0 = no limit)</label>
+              <input type="number" id="maxAssignments" min="0" step="1" value="0" />
+            </div>
+          </div>
+          <div class="row">
+            <div class="grow">
+              <label for="assignGapMs">Delay between assigns (ms)</label>
+              <input type="number" id="assignGapMs" min="0" step="50" value="800" />
+            </div>
+            <div class="grow">
+              <label for="postSaveWaitMs">Post-save wait (ms)</label>
+              <input type="number" id="postSaveWaitMs" min="0" step="100" value="1200" />
+            </div>
+          </div>
+
+          <div class="section-divider">
+            <div class="check-row">
+              <input type="checkbox" id="anomalyAutoPauseEnabled" checked />
+              <label for="anomalyAutoPauseEnabled" style="margin:0;">Auto-pause on risky error patterns.</label>
+            </div>
+            <div class="row">
+              <div class="grow">
+                <label for="anomalyMinSample">Min sample before error-rate check</label>
+                <input type="number" id="anomalyMinSample" min="0" step="1" value="10" />
+              </div>
+              <div class="grow">
+                <label for="anomalyErrorRatePct">Pause if error rate >= (%)</label>
+                <input type="number" id="anomalyErrorRatePct" min="0" step="1" value="15" />
+              </div>
+            </div>
+            <div class="row">
+              <div class="grow">
+                <label for="anomalyConsecutiveTeamNotFound">Consecutive team_option_not_found</label>
+                <input type="number" id="anomalyConsecutiveTeamNotFound" min="0" step="1" value="3" />
+              </div>
+              <div class="grow">
+                <label for="anomalyReceiverErrorsInWindow">Receiver errors in window</label>
+                <input type="number" id="anomalyReceiverErrorsInWindow" min="0" step="1" value="2" />
+              </div>
+            </div>
+            <label for="anomalyWindowSize">Window size (assignments)</label>
+            <input type="number" id="anomalyWindowSize" min="1" step="1" value="10" />
+          </div>
+
+          <div class="section-divider">
+            <div class="row">
+              <button type="button" class="secondary" id="setOutputFileBtn" style="flex:0 0 auto;">Set live output.csv location</button>
+              <span class="hint" id="outputFileStatus" style="flex:1;margin:0;align-self:center;">Optional — results also download on demand.</span>
+            </div>
+          </div>
+        </div>
+      </details>
     </div>
 
     <div class="card">
-      <h2>Target tab</h2>
+      <h2>Targets</h2>
       <p class="hint" style="margin-top:0;">
-        Choose the ucalgary.ca site tab (e.g. arts.ucalgary.ca) the extension should drive for scans and assignments. Pin the exact site for a run under Allowed origin.
+        Review and edit before running. Each row is one page and its team. Click <strong>Save targets</strong> to keep your edits.
       </p>
-      <div class="row">
-        <select id="tabSelect" class="grow"></select>
-        <button type="button" class="secondary" id="refreshTabsBtn">Refresh tabs</button>
+      <div class="targets-wrap">
+        <table class="targets">
+          <thead>
+            <tr>
+              <th class="row-index">#</th>
+              <th style="width:56%;">Page URL</th>
+              <th>Team</th>
+              <th class="row-remove" aria-label="remove"></th>
+            </tr>
+          </thead>
+          <tbody id="targetsBody"></tbody>
+        </table>
       </div>
+      <div class="row" style="margin-top:10px;">
+        <button type="button" id="saveTargetsBtn">Save targets</button>
+        <button type="button" class="secondary" id="addTargetBtn">Add row</button>
+        <button type="button" class="secondary" id="downloadCleanCsvBtn">Download cleaned CSV</button>
+      </div>
+      <div class="hint" id="targetsStatus"></div>
+    </div>
+  </div>
 
-      <div class="section-divider">
-        <h2>Rules (JSON)</h2>
-        <textarea id="rulesText" spellcheck="false"></textarea>
-        <div class="row" style="margin-top:10px;">
-          <button type="button" id="saveRulesBtn">Save rules</button>
-          <button type="button" class="secondary" id="resetRulesBtn">Reset to defaults</button>
-        </div>
-        <div class="hint" id="rulesStatus"></div>
+  <div class="card activity-card">
+    <div class="activity-toolbar">
+      <h2>Results</h2>
+      <div class="row" style="margin:0;">
+        <button type="button" class="secondary" id="copyFailuresBtn" disabled>Copy failed links</button>
       </div>
+    </div>
+    <div class="stat-row">
+      <div class="stat">
+        <div class="stat-num" id="statPages">0</div>
+        <div class="stat-label">Pages scanned</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" id="statBlocks">0</div>
+        <div class="stat-label">Blocks processed</div>
+      </div>
+      <div class="stat ok">
+        <div class="stat-num" id="statOk">0</div>
+        <div class="stat-label">Succeeded</div>
+      </div>
+      <div class="stat fail">
+        <div class="stat-num" id="statFail">0</div>
+        <div class="stat-label">Failed</div>
+      </div>
+    </div>
+    <h2 id="failuresHeading" style="margin:0 0 8px;">Needs attention</h2>
+    <div class="failures" id="failuresList">
+      <div class="failures-empty">Nothing to show yet — failures and skipped pages will appear here during a run.</div>
     </div>
   </div>
 

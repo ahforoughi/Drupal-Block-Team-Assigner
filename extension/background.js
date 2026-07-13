@@ -6,7 +6,8 @@ let running = false;
 let cancelRequested = false;
 let runTabId = null;
 let renderWaitMs = 1200;
-let teamSeparator = '|';
+/** When true, also set the page/node's own team to match its blocks' team. */
+let assignPageTeamEnabled = true;
 
 const ASSIGN_ALARM = 'assign_continue';
 const ASSIGN_BATCH_SIZE = 3;
@@ -63,6 +64,12 @@ function emitLog(level, message, details) {
 
 function emitPageSummary(summary) {
   chrome.runtime.sendMessage({ type: 'PAGE_SUMMARY_UPDATE', summary }).catch(() => {});
+}
+
+/** Store a run-log row and stream it to the dashboard for live analytics. */
+function recordEntry(entry) {
+  logEntries.push(entry);
+  chrome.runtime.sendMessage({ type: 'RUN_ENTRY', entry }).catch(() => {});
 }
 
 function normalizePathPrefix(prefix) {
@@ -234,7 +241,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       runTabId = null;
     }
     if (typeof msg.renderWaitMs === 'number') renderWaitMs = msg.renderWaitMs;
-    if (msg.teamSeparator === ',' || msg.teamSeparator === '|') teamSeparator = msg.teamSeparator;
+    if (typeof msg.assignPageTeam === 'boolean') assignPageTeamEnabled = msg.assignPageTeam;
     mergeGuardrailsFromMsg(msg);
     logEntries = [];
     pageSummaries = [];
@@ -264,7 +271,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (Number.isFinite(tid)) runTabId = tid;
         }
         if (typeof msg.renderWaitMs === 'number') renderWaitMs = msg.renderWaitMs;
-        if (msg.teamSeparator === ',' || msg.teamSeparator === '|') teamSeparator = msg.teamSeparator;
+        if (typeof msg.assignPageTeam === 'boolean') assignPageTeamEnabled = msg.assignPageTeam;
         mergeGuardrailsFromMsg(msg);
         const pageLimit = msg.mode === 'test' ? msg.limit || 1 : pages.length;
         const testFirstBlockOnly = msg.mode === 'test';
@@ -409,7 +416,7 @@ async function runPages(pageLimit, testFirstBlockOnly) {
     } else {
       const notes = `URL not allowed (origin/path guardrails): ${guardrails.allowedOrigin}${normalizePathPrefix(guardrails.pathPrefix) || ''}`;
       emitLog('warn', 'Skipped invalid URL', page.page_url);
-      logEntries.push({
+      recordEntry({
         page_url: page.page_url,
         block_label: '',
         block_edit_url: '',
@@ -443,7 +450,7 @@ async function runPages(pageLimit, testFirstBlockOnly) {
     testFirstBlockOnly,
     tabId,
     renderWaitMs,
-    teamSeparator,
+    assignPageTeamEnabled,
     assignGapMs: guardrails.assignGapMs,
     postSaveWaitMs: guardrails.postSaveWaitMs,
     anomalyState: createAnomalyState(),
@@ -478,7 +485,6 @@ async function runNextChunk() {
     return;
   }
 
-  const rules = await loadRules();
   let {
     validPages,
     pi,
@@ -488,7 +494,7 @@ async function runNextChunk() {
     testFirstBlockOnly,
     tabId,
     renderWaitMs: rw,
-    teamSeparator: sep,
+    assignPageTeamEnabled: pageTeamEnabled,
     assignGapMs,
     postSaveWaitMs,
     anomalyState,
@@ -521,14 +527,18 @@ async function runNextChunk() {
         }
         const pageTitle =
           scanResult && typeof scanResult.pageTitle === 'string' ? scanResult.pageTitle : '';
-        const pageTeam = getTeamForPage(page, rules, sep) || '';
+        const pageTeam = getTeamForPage(page) || '';
+        const pageEditUrl =
+          scanResult && typeof scanResult.pageEditUrl === 'string' ? scanResult.pageEditUrl : '';
 
         pageSummaries.push({
           page_title: pageTitle,
           page_url: page.page_url,
           page_team: pageTeam,
           blocks_no_team_before: blocks.length,
-          blocks_no_team_after: null
+          blocks_no_team_after: null,
+          page_team_status: '',
+          page_edit_url: pageEditUrl
         });
 
         currentBlocks = buildPageBlocks(blocks, testFirstBlockOnly);
@@ -542,8 +552,18 @@ async function runNextChunk() {
         );
 
         if (!currentBlocks.length) {
-          pageSummaries[pageSummaries.length - 1].blocks_no_team_after = blocks.length;
-          emitPageSummary(pageSummaries[pageSummaries.length - 1]);
+          const skipSummary = pageSummaries[pageSummaries.length - 1];
+          skipSummary.blocks_no_team_after = blocks.length;
+          await maybeAssignPageTeam({
+            enabled: pageTeamEnabled,
+            tabId,
+            page,
+            summary: skipSummary,
+            teamName: pageTeam,
+            postSaveWaitMs,
+            renderWaitMs: rw
+          });
+          emitPageSummary(skipSummary);
           pi++;
           pageScanned = false;
           currentBlocks = [];
@@ -552,7 +572,7 @@ async function runNextChunk() {
         }
       } catch (err) {
         emitLog('error', `Page ${pi + 1}: scan failed`, String(err));
-        const pageTeam = getTeamForPage(page, rules, sep) || '';
+        const pageTeam = getTeamForPage(page) || '';
         const failSummary = {
           page_title: '',
           page_url: page.page_url,
@@ -591,7 +611,7 @@ async function runNextChunk() {
       try {
         if (totalAssigned > 0) await sleep(assignGapMs);
 
-        const teamName = getTeamForPage(page, rules, sep);
+        const teamName = getTeamForPage(page);
         let status = 'no_rule_match';
         let notes = '';
 
@@ -620,7 +640,7 @@ async function runNextChunk() {
 
         totalAssigned++;
 
-        logEntries.push({
+        recordEntry({
           page_url: page.page_url,
           block_label: block.label || '',
           block_edit_url: block.editUrl || '',
@@ -674,7 +694,7 @@ async function runNextChunk() {
         const errMsg = String(err);
         emitLog('error', 'Assign: error', errMsg);
         totalAssigned++;
-        logEntries.push({
+        recordEntry({
           page_url: page.page_url,
           block_label: block.label || '',
           block_edit_url: block.editUrl || '',
@@ -739,6 +759,17 @@ async function runNextChunk() {
       }
 
       const doneSummary = pageSummaries.find((s) => s.page_url === page.page_url);
+      if (!maxAssignmentsReached) {
+        await maybeAssignPageTeam({
+          enabled: pageTeamEnabled,
+          tabId,
+          page,
+          summary: doneSummary,
+          teamName: getTeamForPage(page),
+          postSaveWaitMs,
+          renderWaitMs: rw
+        });
+      }
       if (doneSummary) emitPageSummary(doneSummary);
 
       pi++;
@@ -790,53 +821,31 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function loadRules() {
-  const stored = await chrome.storage.local.get('rules');
-  if (stored.rules) return stored.rules;
-
-  const res = await fetch(chrome.runtime.getURL('rules_default.json'));
-  const json = await res.json();
-  return json;
+/** One team per page, taken straight from the CSV (already cleaned/trimmed). */
+function getTeamForPage(page) {
+  const t = page && page.page_teams != null ? String(page.page_teams).trim() : '';
+  return t || null;
 }
 
-function getTeamForUrl(url, rulesObj) {
-  const urlNorm = (url || '').toLowerCase();
-  const rules = rulesObj.rules || [];
-
-  for (const r of rules) {
-    const pattern = (r.pattern || '').toLowerCase();
-    if (pattern && urlNorm.includes(pattern)) {
-      return { teamName: r.team_name, reason: `matched pattern ${r.pattern}` };
-    }
-  }
-
-  if (rulesObj.default_team) {
-    return { teamName: rulesObj.default_team, reason: 'default_team' };
-  }
-
-  return { teamName: null, reason: 'no matching rule' };
-}
-
-function getTeamForPage(page, rulesObj, sep) {
-  const separator = sep === ',' ? ',' : '|';
-  if (page.page_teams) {
-    const first = page.page_teams.split(separator)[0].trim();
-    if (first) return first;
-  }
-  const byUrl = getTeamForUrl(page.page_url, rulesObj);
-  return byUrl.teamName;
-}
-
-function waitForTabComplete(tabId) {
+function waitForTabComplete(tabId, timeoutMs) {
   return new Promise((resolve) => {
-    function listener(updatedTabId, info) {
-      if (updatedTabId === tabId && info.status === 'complete') {
+    let settled = false;
+    function finish() {
+      if (settled) return;
+      settled = true;
+      try {
         chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
+      } catch (e) {
+        /* ignore */
       }
+      resolve();
+    }
+    function listener(updatedTabId, info) {
+      if (updatedTabId === tabId && info.status === 'complete') finish();
     }
 
     chrome.tabs.onUpdated.addListener(listener);
+    if (typeof timeoutMs === 'number' && timeoutMs > 0) setTimeout(finish, timeoutMs);
   });
 }
 
@@ -897,6 +906,96 @@ async function sendAssignTeam(tabId, teamName, blockIndex, postSaveWaitMs) {
     };
   }
   return response || { status: 'error', notes: 'no response from content script' };
+}
+
+async function sendAssignPageTeam(tabId, teamName, postSaveWaitMs) {
+  const { ok, error, response } = await sendTabMessageWithRetry(
+    tabId,
+    {
+      type: 'ASSIGN_PAGE_TEAM',
+      teamName,
+      postSaveWaitMs: typeof postSaveWaitMs === 'number' ? postSaveWaitMs : guardrails.postSaveWaitMs
+    },
+    25,
+    200
+  );
+  if (!ok) {
+    return {
+      status: 'error',
+      notes: `no receiver for ASSIGN_PAGE_TEAM: ${error}`
+    };
+  }
+  return response || { status: 'error', notes: 'no response from content script' };
+}
+
+/**
+ * Navigate the tab to the node edit form and set the same team on the page
+ * itself. The content script clicks Save (which navigates away), so we wait for
+ * the resulting redirect to land before returning.
+ */
+async function assignPageTeam(tabId, editUrl, teamName, postSaveWaitMs, renderWaitMs) {
+  await chrome.tabs.update(tabId, { url: editUrl });
+  await waitForTabComplete(tabId, 30000);
+  if (renderWaitMs > 0) await sleep(renderWaitMs);
+  const res = await sendAssignPageTeam(tabId, teamName, postSaveWaitMs);
+  if (res && res.status === 'success') {
+    await waitForTabComplete(tabId, 30000);
+    if (typeof postSaveWaitMs === 'number' && postSaveWaitMs > 0) await sleep(postSaveWaitMs);
+  }
+  return res || { status: 'error', notes: 'no response from content script' };
+}
+
+function logPageTeamEntry(page, editUrl, teamName, status, notes) {
+  recordEntry({
+    page_url: page.page_url,
+    block_label: '(page team)',
+    block_edit_url: editUrl || '',
+    team_name: teamName || '',
+    status,
+    notes: notes || '',
+    timestamp: new Date().toISOString()
+  });
+}
+
+/**
+ * Set the page/node's own team to match its blocks, when enabled. Records the
+ * outcome on the page summary (page_team_status) and in the run log. No-op if
+ * disabled, already handled, or no team/edit-form URL is available.
+ */
+async function maybeAssignPageTeam(opts) {
+  const { enabled, tabId, page, summary, teamName, postSaveWaitMs, renderWaitMs } = opts;
+  if (!enabled || !summary) return;
+  if (summary.page_team_status) return;
+
+  if (!teamName) {
+    summary.page_team_status = 'no_rule_match';
+    return;
+  }
+
+  const editUrl = summary.page_edit_url || '';
+  if (!editUrl) {
+    summary.page_team_status = 'no_edit_url';
+    emitLog('warn', 'Page team skipped', `No edit form link found on ${page.page_url}`);
+    logPageTeamEntry(page, editUrl, teamName, 'no_edit_url', 'edit tab link not found on page');
+    return;
+  }
+
+  let status = 'error';
+  let notes = '';
+  try {
+    emitLog('info', 'Page team: assign', `${teamName} — ${editUrl}`);
+    const res = await assignPageTeam(tabId, editUrl, teamName, postSaveWaitMs, renderWaitMs);
+    status = res.status;
+    notes = res.notes || '';
+    emitAssignResultLog(status, notes);
+  } catch (err) {
+    status = 'error';
+    notes = String(err);
+    emitLog('error', 'Page team: error', notes);
+  }
+
+  summary.page_team_status = status;
+  logPageTeamEntry(page, editUrl, teamName, status, notes);
 }
 
 async function sendScanBlocks(tabId) {
@@ -964,7 +1063,8 @@ async function downloadOutputCsv() {
     'page_url',
     'page_team',
     'blocks_no_team_before',
-    'blocks_no_team_after'
+    'blocks_no_team_after',
+    'page_team_status'
   ];
 
   const lines = [header.join(',')];
